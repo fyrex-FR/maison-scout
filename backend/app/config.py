@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     allow_open_registration: bool = True
     invite_codes: str = ""
+    crawl_secret: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -1,9 +1,9 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session, selectinload
 
-from app.auth import create_token, get_current_user, hash_password, verify_password
+from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
 from app.config import settings
 from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
@@ -242,13 +242,23 @@ def delete_search_profile(
 
 
 @app.post("/api/crawl/demo")
-async def crawl_demo(db: Session = Depends(get_db)) -> dict[str, int | str]:
+async def crawl_demo(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict[str, int | str]:
+    require_crawl_access(authorization, x_crawl_secret)
     run: CrawlRun = await run_crawler(db, DemoCrawler())
     return {"status": run.status, "found_count": run.found_count}
 
 
 @app.post("/api/crawl/green-acres")
-async def crawl_green_acres(db: Session = Depends(get_db)) -> dict[str, int | str]:
+async def crawl_green_acres(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict[str, int | str]:
+    require_crawl_access(authorization, x_crawl_secret)
     cities = list(
         db.scalars(
             select(SearchProfile.city).where(
@@ -259,6 +269,15 @@ async def crawl_green_acres(db: Session = Depends(get_db)) -> dict[str, int | st
     )
     run: CrawlRun = await run_crawler(db, GreenAcresCrawler.from_cities(cities))
     return {"status": run.status, "found_count": run.found_count}
+
+
+def require_crawl_access(authorization: str | None, x_crawl_secret: str | None) -> None:
+    if settings.crawl_secret and x_crawl_secret == settings.crawl_secret:
+        return
+    if authorization and authorization.lower().startswith("bearer "):
+        parse_token(authorization.split(" ", 1)[1])
+        return
+    raise HTTPException(status_code=401, detail="Crawl access required")
 
 
 @app.get("/api/crawl-runs", response_model=list[CrawlRunOut])
