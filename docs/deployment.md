@@ -45,6 +45,18 @@ Recommended public frontend domain:
 maison.cardvaults.app
 ```
 
+## Temporary Docker frontend
+
+For a temporary non-Cloudflare deployment, build `frontend/Dockerfile.prod` with:
+
+```bash
+docker build \
+  -f frontend/Dockerfile.prod \
+  --build-arg VITE_API_URL=https://maison-api.178.105.44.71.sslip.io \
+  -t maison-scout-frontend:latest \
+  frontend
+```
+
 ## First crawler
 
 The first production crawler is Green-Acres:
@@ -59,4 +71,3 @@ It currently scans:
 - Saint-Raphael
 
 It keeps only house/villa-style listings and skips apartments, land, parking, and commercial listings.
-
