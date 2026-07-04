@@ -34,3 +34,12 @@ class ListingOut(BaseModel):
 class ListingStatusUpdate(BaseModel):
     status: str
 
+
+class CrawlRunOut(BaseModel):
+    id: int
+    source: str
+    status: str
+    found_count: int
+    error: str | None
+
+    model_config = {"from_attributes": True}

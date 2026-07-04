@@ -12,17 +12,22 @@ function formatPrice(value) {
 
 function App() {
   const [listings, setListings] = useState([]);
+  const [runs, setRuns] = useState([]);
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(false);
 
   async function loadListings() {
-    const response = await fetch(`${API_URL}/api/listings`);
-    setListings(await response.json());
+    const [listingsResponse, runsResponse] = await Promise.all([
+      fetch(`${API_URL}/api/listings`),
+      fetch(`${API_URL}/api/crawl-runs`),
+    ]);
+    setListings(await listingsResponse.json());
+    setRuns(await runsResponse.json());
   }
 
-  async function runDemoCrawl() {
+  async function runGreenAcresCrawl() {
     setLoading(true);
-    await fetch(`${API_URL}/api/crawl/demo`, { method: "POST" });
+    await fetch(`${API_URL}/api/crawl/green-acres`, { method: "POST" });
     await loadListings();
     setLoading(false);
   }
@@ -52,9 +57,9 @@ function App() {
           <h1>Maison Scout</h1>
           <p>Frejus, Saint-Raphael et les maisons qui meritent vraiment un appel.</p>
         </div>
-        <button className="primary" onClick={runDemoCrawl} disabled={loading}>
+        <button className="primary" onClick={runGreenAcresCrawl} disabled={loading}>
           <RefreshCw size={18} />
-          {loading ? "Scan..." : "Scanner"}
+          {loading ? "Scan..." : "Scanner Green-Acres"}
         </button>
       </header>
 
@@ -72,11 +77,26 @@ function App() {
         ))}
       </section>
 
+      <section className="summary">
+        <div>
+          <strong>{listings.length}</strong>
+          <span>annonces suivies</span>
+        </div>
+        <div>
+          <strong>{runs[0]?.found_count ?? 0}</strong>
+          <span>trouvees au dernier scan</span>
+        </div>
+        <div>
+          <strong>{runs[0]?.status ?? "jamais"}</strong>
+          <span>statut crawler</span>
+        </div>
+      </section>
+
       <section className="grid">
         {filtered.map((listing) => (
           <article className="card" key={listing.id}>
             <div className="photo">
-              <Home size={44} />
+              {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={44} />}
               <span>{listing.score ?? "-"} / 100</span>
             </div>
             <div className="content">
@@ -91,6 +111,9 @@ function App() {
                 {listing.bedrooms || "?"} ch.
               </p>
               <p className="description">{listing.description}</p>
+              <a className="source" href={listing.sources[0]?.url} target="_blank" rel="noreferrer">
+                Voir l'annonce source
+              </a>
               <div className="actions">
                 <button title="Shortlist" onClick={() => setListingStatus(listing.id, "favorite")}>
                   <Heart size={18} />
@@ -111,4 +134,3 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
-

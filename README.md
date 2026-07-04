@@ -23,6 +23,14 @@ docker compose up --build
 
 - Zone: Frejus, Saint-Raphael
 - Ingestion automatisee, pas d'import manuel
-- Sources a brancher en priorite: Bien'ici, Green-Acres, SeLoger
+- Premier crawler: Green-Acres
+- Sources suivantes a brancher: Bien'ici, SeLoger
 - DB sur Coolify/PostgreSQL pour la prod
 
+## API utile
+
+- `GET /api/listings`
+- `POST /api/crawl/green-acres`
+- `GET /api/crawl-runs`
+
+Voir aussi `docs/deployment.md`.
