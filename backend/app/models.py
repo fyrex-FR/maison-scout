@@ -52,6 +52,10 @@ class SearchProfile(Base):
     city: Mapped[str] = mapped_column(String(120), index=True)
     source: Mapped[str] = mapped_column(String(80), default="green-acres", index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    max_price_eur: Mapped[int | None] = mapped_column(Integer)
+    min_living_area_m2: Mapped[int | None] = mapped_column(Integer)
+    min_land_area_m2: Mapped[int | None] = mapped_column(Integer)
+    min_bedrooms: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped[User] = relationship(back_populates="search_profiles")

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Heart, Home, LogOut, MapPin, Phone, Plus, RefreshCw, X } from "lucide-react";
+import { Heart, Home, LogOut, MapPin, Phone, Plus, RefreshCw, Save, Settings, X } from "lucide-react";
 import "./styles.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -21,6 +21,15 @@ function App() {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ email: "", password: "", display_name: "" });
   const [newCity, setNewCity] = useState("");
+  const [cityCriteria, setCityCriteria] = useState({
+    max_price_eur: "",
+    min_living_area_m2: "",
+    min_land_area_m2: "",
+    min_bedrooms: "",
+  });
+  const [selectedListing, setSelectedListing] = useState(null);
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [noteDraft, setNoteDraft] = useState("");
   const [error, setError] = useState("");
 
   function authHeaders() {
@@ -79,11 +88,11 @@ function App() {
     setLoading(false);
   }
 
-  async function setListingStatus(id, nextStatus) {
+  async function setListingStatus(id, nextStatus, note = undefined) {
     await fetch(`${API_URL}/api/listings/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ status: nextStatus }),
+      body: JSON.stringify({ status: nextStatus, note }),
     });
     await loadListings();
   }
@@ -94,10 +103,48 @@ function App() {
     await fetch(`${API_URL}/api/search-profiles`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ city: newCity.trim() }),
+      body: JSON.stringify({
+        city: newCity.trim(),
+        max_price_eur: numberOrNull(cityCriteria.max_price_eur),
+        min_living_area_m2: numberOrNull(cityCriteria.min_living_area_m2),
+        min_land_area_m2: numberOrNull(cityCriteria.min_land_area_m2),
+        min_bedrooms: numberOrNull(cityCriteria.min_bedrooms),
+      }),
     });
     setNewCity("");
+    setCityCriteria({ max_price_eur: "", min_living_area_m2: "", min_land_area_m2: "", min_bedrooms: "" });
     await loadListings();
+  }
+
+  async function deleteProfile(profileId) {
+    await fetch(`${API_URL}/api/search-profiles/${profileId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    await loadListings();
+  }
+
+  async function saveProfile(profile) {
+    await fetch(`${API_URL}/api/search-profiles/${profile.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        name: profile.name,
+        city: profile.city,
+        source: profile.source,
+        max_price_eur: numberOrNull(profile.max_price_eur),
+        min_living_area_m2: numberOrNull(profile.min_living_area_m2),
+        min_land_area_m2: numberOrNull(profile.min_land_area_m2),
+        min_bedrooms: numberOrNull(profile.min_bedrooms),
+      }),
+    });
+    setSelectedProfile(null);
+    await loadListings();
+  }
+
+  function openListing(listing) {
+    setSelectedListing(listing);
+    setNoteDraft(listing.note || "");
   }
 
   useEffect(() => {
@@ -108,6 +155,8 @@ function App() {
     if (status === "all") return listings;
     return listings.filter((listing) => listing.status === status);
   }, [listings, status]);
+
+  const activeListing = selectedListing ? listings.find((listing) => listing.id === selectedListing.id) || selectedListing : null;
 
   if (!token) {
     return (
@@ -169,11 +218,25 @@ function App() {
       <section className="profiles">
         <div className="profile-list">
           {profiles.map((profile) => (
-            <span key={profile.id}>{profile.city}</span>
+            <span key={profile.id}>
+              {profile.city}
+              <button title="Réglages" onClick={() => setSelectedProfile(profile)}>
+                <Settings size={14} />
+              </button>
+              <button title="Supprimer" onClick={() => deleteProfile(profile.id)}>
+                <X size={14} />
+              </button>
+            </span>
           ))}
         </div>
         <form onSubmit={addCity}>
           <input placeholder="Ajouter une ville" value={newCity} onChange={(event) => setNewCity(event.target.value)} />
+          <input
+            placeholder="Budget max"
+            inputMode="numeric"
+            value={cityCriteria.max_price_eur}
+            onChange={(event) => setCityCriteria({ ...cityCriteria, max_price_eur: event.target.value })}
+          />
           <button title="Ajouter" type="submit">
             <Plus size={18} />
           </button>
@@ -212,12 +275,12 @@ function App() {
       <section className="grid">
         {filtered.map((listing) => (
           <article className="card" key={listing.id}>
-            <div className="photo">
+            <div className="photo" onClick={() => openListing(listing)}>
               {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={44} />}
               <span>{listing.score ?? "-"} / 100</span>
             </div>
             <div className="content">
-              <h2>{listing.title}</h2>
+              <h2 onClick={() => openListing(listing)}>{listing.title}</h2>
               <p className="location">
                 <MapPin size={16} />
                 {listing.city} {listing.postal_code || ""}
@@ -228,6 +291,7 @@ function App() {
                 {listing.bedrooms || "?"} ch.
               </p>
               <p className="description">{listing.description}</p>
+              {listing.note && <p className="note-preview">{listing.note}</p>}
               <a className="source" href={listing.sources[0]?.url} target="_blank" rel="noreferrer">
                 Voir l'annonce source
               </a>
@@ -246,8 +310,100 @@ function App() {
           </article>
         ))}
       </section>
+
+      {activeListing && (
+        <div className="modal-backdrop" onClick={() => setSelectedListing(null)}>
+          <section className="modal" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" title="Fermer" onClick={() => setSelectedListing(null)}>
+              <X size={18} />
+            </button>
+            <div className="detail-photos">
+              {(activeListing.photos.length ? activeListing.photos : [{ url: "" }]).slice(0, 4).map((photo, index) => (
+                <div className="detail-photo" key={`${photo.url}-${index}`}>
+                  {photo.url ? <img src={photo.url} alt="" /> : <Home size={36} />}
+                </div>
+              ))}
+            </div>
+            <h2>{activeListing.title}</h2>
+            <p className="location">
+              <MapPin size={16} />
+              {activeListing.city} {activeListing.postal_code || ""}
+            </p>
+            <p className="price">{formatPrice(activeListing.price_eur)}</p>
+            <p className="meta">
+              {activeListing.living_area_m2 || "?"} m2 hab. · {activeListing.land_area_m2 || "?"} m2 terrain ·{" "}
+              {activeListing.rooms || "?"} pièces · {activeListing.bedrooms || "?"} ch.
+            </p>
+            <p>{activeListing.description}</p>
+            <textarea placeholder="Notes privées" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} />
+            <div className="modal-actions">
+              <button onClick={() => setListingStatus(activeListing.id, activeListing.status, noteDraft)}>
+                <Save size={18} />
+                Note
+              </button>
+              <button onClick={() => setListingStatus(activeListing.id, "favorite", noteDraft)}>
+                <Heart size={18} />
+                Shortlist
+              </button>
+              <button onClick={() => setListingStatus(activeListing.id, "call", noteDraft)}>
+                <Phone size={18} />
+                Appeler
+              </button>
+              <button onClick={() => setListingStatus(activeListing.id, "rejected", noteDraft)}>
+                <X size={18} />
+                Rejeter
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {selectedProfile && (
+        <div className="modal-backdrop" onClick={() => setSelectedProfile(null)}>
+          <section className="modal small" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" title="Fermer" onClick={() => setSelectedProfile(null)}>
+              <X size={18} />
+            </button>
+            <h2>{selectedProfile.city}</h2>
+            <label>Budget max</label>
+            <input
+              inputMode="numeric"
+              value={selectedProfile.max_price_eur || ""}
+              onChange={(event) => setSelectedProfile({ ...selectedProfile, max_price_eur: event.target.value })}
+            />
+            <label>Surface habitable min</label>
+            <input
+              inputMode="numeric"
+              value={selectedProfile.min_living_area_m2 || ""}
+              onChange={(event) => setSelectedProfile({ ...selectedProfile, min_living_area_m2: event.target.value })}
+            />
+            <label>Terrain min</label>
+            <input
+              inputMode="numeric"
+              value={selectedProfile.min_land_area_m2 || ""}
+              onChange={(event) => setSelectedProfile({ ...selectedProfile, min_land_area_m2: event.target.value })}
+            />
+            <label>Chambres min</label>
+            <input
+              inputMode="numeric"
+              value={selectedProfile.min_bedrooms || ""}
+              onChange={(event) => setSelectedProfile({ ...selectedProfile, min_bedrooms: event.target.value })}
+            />
+            <button className="primary" onClick={() => saveProfile(selectedProfile)}>
+              <Save size={18} />
+              Sauver
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

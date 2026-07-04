@@ -25,6 +25,7 @@ class ListingOut(BaseModel):
     description: str | None
     score: int | None
     status: str
+    note: str | None = None
     sources: list[ListingSourceOut]
     photos: list[ListingPhotoOut]
 
@@ -69,6 +70,10 @@ class SearchProfileCreate(BaseModel):
     name: str | None = None
     city: str
     source: str = "green-acres"
+    max_price_eur: int | None = None
+    min_living_area_m2: int | None = None
+    min_land_area_m2: int | None = None
+    min_bedrooms: int | None = None
 
 
 class SearchProfileOut(BaseModel):
@@ -77,5 +82,9 @@ class SearchProfileOut(BaseModel):
     city: str
     source: str
     enabled: bool
+    max_price_eur: int | None
+    min_living_area_m2: int | None
+    min_land_area_m2: int | None
+    min_bedrooms: int | None
 
     model_config = {"from_attributes": True}
