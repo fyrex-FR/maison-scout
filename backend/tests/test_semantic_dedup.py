@@ -80,10 +80,53 @@ def test_merge_listings_moves_sources_photos_states_and_comparison_items():
         "https://cdn/bi-1.jpg",
     }
     state = db.scalar(select(UserListingState).where(UserListingState.user_id == user.id, UserListingState.listing_id == target.id))
-    assert state.status == "favorite"
-    assert "Note cible" in state.note
-    assert "Note doublon" in state.note
     assert db.scalar(select(ComparisonItem).where(ComparisonItem.user_id == user.id)).listing_id == target.id
     decision = db.scalar(select(SemanticDedupDecision))
     assert decision.status == "merged"
     assert decision.confidence == 92
+
+
+def test_merge_never_overrides_a_users_own_status_on_conflict():
+    """A merge must never pick a status on a user's behalf: each user's own
+    choice stays theirs. The conflicting status only surfaces as a note."""
+    db = next(_db())
+    target = _listing(db, source="green-acres", source_id="ga-1", title="Villa cible")
+    duplicate = _listing(db, source="bien-ici", source_id="bi-1", title="Villa doublon")
+    user = User(email="x@example.com", display_name="X", password_hash="hash")
+    db.add(user)
+    db.flush()
+    db.add(UserListingState(user_id=user.id, listing_id=target.id, status="favorite", note=None))
+    db.add(UserListingState(user_id=user.id, listing_id=duplicate.id, status="rejected", note="Trop cher"))
+    db.commit()
+
+    merge_listings(db, target_listing_id=target.id, duplicate_listing_id=duplicate.id, confidence=90)
+
+    state = db.scalar(
+        select(UserListingState).where(UserListingState.user_id == user.id, UserListingState.listing_id == target.id)
+    )
+    assert state.status == "favorite"
+    assert "rejetee" in state.note
+    assert "Trop cher" in state.note
+
+
+def test_merge_keeps_new_status_untouched_when_duplicate_has_a_decisive_one():
+    """Even the default 'new' status is never auto-upgraded by a merge."""
+    db = next(_db())
+    target = _listing(db, source="green-acres", source_id="ga-1", title="Villa cible")
+    duplicate = _listing(db, source="bien-ici", source_id="bi-1", title="Villa doublon")
+    user = User(email="x@example.com", display_name="X", password_hash="hash")
+    db.add(user)
+    db.flush()
+    db.add(UserListingState(user_id=user.id, listing_id=target.id, status="new", note="Note cible"))
+    db.add(UserListingState(user_id=user.id, listing_id=duplicate.id, status="favorite", note="Note doublon"))
+    db.commit()
+
+    merge_listings(db, target_listing_id=target.id, duplicate_listing_id=duplicate.id, confidence=90)
+
+    state = db.scalar(
+        select(UserListingState).where(UserListingState.user_id == user.id, UserListingState.listing_id == target.id)
+    )
+    assert state.status == "new"
+    assert "shortlist" in state.note
+    assert "Note cible" in state.note
+    assert "Note doublon" in state.note

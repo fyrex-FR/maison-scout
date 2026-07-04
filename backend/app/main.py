@@ -399,22 +399,20 @@ async def crawl_all(
 def list_semantic_dedup_candidates(
     days: int = 14,
     limit: int = 50,
-    authorization: str | None = Header(default=None),
     x_crawl_secret: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    require_crawl_access(authorization, x_crawl_secret)
+    require_crawl_secret(x_crawl_secret)
     return [_dedup_candidate_payload(left, right) for left, right in semantic_candidate_pairs(db, days=days, limit=limit)]
 
 
 @app.post("/api/semantic-dedup/merge", response_model=ListingOut)
 def merge_semantic_duplicate(
     payload: SemanticDedupDecisionRequest,
-    authorization: str | None = Header(default=None),
     x_crawl_secret: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> Listing:
-    require_crawl_access(authorization, x_crawl_secret)
+    require_crawl_secret(x_crawl_secret)
     if not payload.target_listing_id or not payload.duplicate_listing_id:
         raise HTTPException(status_code=400, detail="target_listing_id and duplicate_listing_id are required")
     try:
@@ -437,11 +435,10 @@ def merge_semantic_duplicate(
 @app.post("/api/semantic-dedup/reject", response_model=SemanticDedupDecisionOut)
 def reject_semantic_duplicate(
     payload: SemanticDedupDecisionRequest,
-    authorization: str | None = Header(default=None),
     x_crawl_secret: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> SemanticDedupDecision:
-    require_crawl_access(authorization, x_crawl_secret)
+    require_crawl_secret(x_crawl_secret)
     if not payload.left_listing_id or not payload.right_listing_id:
         raise HTTPException(status_code=400, detail="left_listing_id and right_listing_id are required")
     return reject_pair(
@@ -487,6 +484,19 @@ def require_crawl_access(authorization: str | None, x_crawl_secret: str | None) 
         parse_token(authorization.split(" ", 1)[1])
         return
     raise HTTPException(status_code=401, detail="Crawl access required")
+
+
+def require_crawl_secret(x_crawl_secret: str | None) -> None:
+    """Stricter than require_crawl_access: no user bearer token accepted.
+
+    Semantic dedup merge/reject are destructive (they delete a Listing) and
+    are meant to be called only by the external dedup agent, not by any
+    logged-in friend account -- unlike the crawl-trigger endpoints, a valid
+    user token is not enough here.
+    """
+    if settings.crawl_secret and x_crawl_secret == settings.crawl_secret:
+        return
+    raise HTTPException(status_code=401, detail="Crawl secret required")
 
 
 @app.get("/api/crawl-runs", response_model=list[CrawlRunOut])

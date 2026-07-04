@@ -212,6 +212,14 @@ def _move_price_history(db: Session, target: Listing, duplicate: Listing) -> Non
         history.listing_id = target.id
 
 
+_STATUS_LABELS = {
+    "new": "nouvelle",
+    "favorite": "shortlist",
+    "call": "a appeler",
+    "rejected": "rejetee",
+}
+
+
 def _merge_user_states(db: Session, target: Listing, duplicate: Listing) -> None:
     duplicate_states = list(
         db.scalars(select(UserListingState).where(UserListingState.listing_id == duplicate.id)).all()
@@ -224,11 +232,21 @@ def _merge_user_states(db: Session, target: Listing, duplicate: Listing) -> None
             )
         )
         if target_state is None:
+            # This user only had an opinion on the duplicate ad: nothing to
+            # reconcile, just carry it over onto the surviving listing.
             duplicate_state.listing_id = target.id
             continue
-        if target_state.status == "new" and duplicate_state.status != "new":
-            target_state.status = duplicate_state.status
-        target_state.note = _merge_notes(target_state.note, duplicate_state.note)
+        # Both ads carry this user's own state. A merge must never pick a
+        # status on their behalf -- each user's status is theirs to set.
+        # Keep whatever they already chose on the surviving listing, and
+        # surface the duplicate's differing status/note as a visible flag so
+        # they can review and re-pick themselves if they want to.
+        extra = duplicate_state.note
+        if duplicate_state.status != target_state.status:
+            label = _STATUS_LABELS.get(duplicate_state.status, duplicate_state.status)
+            flag = f"Statut '{label}' sur l'annonce fusionnee (non applique automatiquement)"
+            extra = f"{flag}\n{extra}" if extra else flag
+        target_state.note = _merge_notes(target_state.note, extra)
         target_state.updated_at = max(target_state.updated_at, duplicate_state.updated_at)
         db.delete(duplicate_state)
 

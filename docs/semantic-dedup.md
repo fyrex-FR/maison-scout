@@ -11,13 +11,10 @@ its own model access, then calls either merge or reject.
 
 ## Endpoints
 
-All endpoints are internal and protected like crawler endpoints:
-
-```text
-Authorization: Bearer <user-token>
-```
-
-or:
+All endpoints require the server secret only -- unlike the crawl-trigger
+endpoints, a logged-in friend's bearer token is **not** accepted here. Merge
+is destructive (it deletes a `Listing` row), so it must only be reachable by
+the external dedup agent, never by a regular account:
 
 ```text
 X-Crawl-Secret: <server secret>
