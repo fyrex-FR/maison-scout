@@ -1,14 +1,15 @@
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import inspect, select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
+from app.cities import canonical_city_name
 from app.config import settings
 from app.crawlers.bien_ici import BienIciCrawler
 from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
-from app.db import Base, engine, get_db
+from app.db import get_db
 from app.ingest import run_crawler
 from app.models import CrawlRun, Listing, SearchProfile, User, UserListingState
 from app.schemas import (
@@ -17,6 +18,7 @@ from app.schemas import (
     CrawlRunOut,
     ListingOut,
     ListingStatusUpdate,
+    ScoreFactor,
     SearchProfileCreate,
     SearchProfileOut,
     UserOut,
@@ -33,20 +35,9 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def startup() -> None:
-    Base.metadata.create_all(bind=engine)
-    ensure_schema()
-
-
-def ensure_schema() -> None:
-    inspector = inspect(engine)
-    if "search_profiles" in inspector.get_table_names():
-        columns = {column["name"] for column in inspector.get_columns("search_profiles")}
-        with engine.begin() as connection:
-            for column in ("max_price_eur", "min_living_area_m2", "min_land_area_m2", "min_bedrooms"):
-                if column not in columns:
-                    connection.execute(text(f"ALTER TABLE search_profiles ADD COLUMN {column} INTEGER"))
+# Le schéma est géré par Alembic (voir docs/deployment.md).
+# Le conteneur exécute `alembic upgrade head` au démarrage (CMD du Dockerfile),
+# avant de lancer uvicorn — plus de create_all / ALTER à la volée ici.
 
 
 @app.get("/health")
@@ -102,13 +93,13 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
     )
     listings = list(db.scalars(stmt).all())
     profile_cities = {
-        city.lower()
+        canonical_city_name(city)
         for city in db.scalars(
             select(SearchProfile.city).where(SearchProfile.user_id == user.id, SearchProfile.enabled == True)  # noqa: E712
         ).all()
     }
     if profile_cities:
-        listings = [listing for listing in listings if listing.city.lower() in profile_cities]
+        listings = [listing for listing in listings if canonical_city_name(listing.city) in profile_cities]
     profiles = list(
         db.scalars(select(SearchProfile).where(SearchProfile.user_id == user.id, SearchProfile.enabled == True)).all()  # noqa: E712
     )
@@ -120,25 +111,53 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
         state = states.get(listing.id)
         listing.status = state.status if state else "new"
         listing.note = state.note if state else None
-        listing.score = score_for_user(listing, profiles)
+        score, breakdown = score_for_user(listing, profiles)
+        listing.score = score
+        listing.score_breakdown = breakdown
     return listings
 
 
-def score_for_user(listing: Listing, profiles: list[SearchProfile]) -> int:
-    matching = [profile for profile in profiles if profile.city.lower() == listing.city.lower()]
+def score_for_user(listing: Listing, profiles: list[SearchProfile]) -> tuple[int, list[ScoreFactor]]:
+    matching = [profile for profile in profiles if canonical_city_name(profile.city) == canonical_city_name(listing.city)]
     profile = matching[0] if matching else None
-    score = listing.score or 50
+    base_score = listing.score or 50
+    breakdown: list[ScoreFactor] = [ScoreFactor(label="Score de base", delta=base_score)]
+    score = base_score
     if not profile:
-        return score
+        return score, breakdown
     if profile.max_price_eur and listing.price_eur:
-        score += 12 if listing.price_eur <= profile.max_price_eur else -18
+        if listing.price_eur <= profile.max_price_eur:
+            delta = 12
+            breakdown.append(ScoreFactor(label="Sous le budget max", delta=delta))
+        else:
+            delta = -18
+            breakdown.append(ScoreFactor(label="Au-dessus du budget max", delta=delta))
+        score += delta
     if profile.min_living_area_m2 and listing.living_area_m2:
-        score += 8 if listing.living_area_m2 >= profile.min_living_area_m2 else -10
+        if listing.living_area_m2 >= profile.min_living_area_m2:
+            delta = 8
+            breakdown.append(ScoreFactor(label="Surface habitable suffisante", delta=delta))
+        else:
+            delta = -10
+            breakdown.append(ScoreFactor(label="Surface habitable trop petite", delta=delta))
+        score += delta
     if profile.min_land_area_m2 and listing.land_area_m2:
-        score += 8 if listing.land_area_m2 >= profile.min_land_area_m2 else -8
+        if listing.land_area_m2 >= profile.min_land_area_m2:
+            delta = 8
+            breakdown.append(ScoreFactor(label="Terrain suffisant", delta=delta))
+        else:
+            delta = -8
+            breakdown.append(ScoreFactor(label="Terrain trop petit", delta=delta))
+        score += delta
     if profile.min_bedrooms and listing.bedrooms:
-        score += 8 if listing.bedrooms >= profile.min_bedrooms else -10
-    return max(0, min(100, score))
+        if listing.bedrooms >= profile.min_bedrooms:
+            delta = 8
+            breakdown.append(ScoreFactor(label="Assez de chambres", delta=delta))
+        else:
+            delta = -10
+            breakdown.append(ScoreFactor(label="Pas assez de chambres", delta=delta))
+        score += delta
+    return max(0, min(100, score)), breakdown
 
 
 @app.patch("/api/listings/{listing_id}/status", response_model=ListingOut)
@@ -160,8 +179,13 @@ def update_listing_status(
     if state is None:
         state = UserListingState(user_id=user.id, listing_id=listing_id)
         db.add(state)
-    state.status = payload.status
-    state.note = payload.note
+    fields_set = payload.model_fields_set
+    if "status" in fields_set and payload.status is not None:
+        state.status = payload.status
+    elif state.status is None:
+        state.status = "new"
+    if "note" in fields_set:
+        state.note = payload.note
     db.commit()
     stmt = (
         select(Listing)

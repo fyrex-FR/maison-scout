@@ -11,6 +11,11 @@ class ListingPhotoOut(BaseModel):
     position: int
 
 
+class ScoreFactor(BaseModel):
+    label: str
+    delta: int
+
+
 class ListingOut(BaseModel):
     id: int
     title: str
@@ -26,6 +31,7 @@ class ListingOut(BaseModel):
     score: int | None
     status: str
     note: str | None = None
+    score_breakdown: list[ScoreFactor] | None = None
     sources: list[ListingSourceOut]
     photos: list[ListingPhotoOut]
 
@@ -33,7 +39,7 @@ class ListingOut(BaseModel):
 
 
 class ListingStatusUpdate(BaseModel):
-    status: str
+    status: str | None = None
     note: str | None = None
 
 

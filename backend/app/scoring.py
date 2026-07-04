@@ -4,8 +4,6 @@ from app.models import Listing
 def score_listing(listing: Listing) -> int:
     score = 50
 
-    if listing.city.lower() in {"frejus", "fréjus", "saint-raphael", "saint-raphaël"}:
-        score += 15
     if listing.bedrooms and listing.bedrooms >= 3:
         score += 10
     if listing.living_area_m2 and listing.living_area_m2 >= 100:
