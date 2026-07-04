@@ -1,0 +1,165 @@
+:root {
+  color: #202427;
+  background: #f4f2ec;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 34px;
+}
+
+.topbar p {
+  color: #62605a;
+  margin: 6px 0 0;
+}
+
+.primary,
+.filters button,
+.actions button {
+  border: 1px solid #d6d1c6;
+  background: #ffffff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: #235347;
+  border-color: #235347;
+  color: white;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.filters button {
+  padding: 8px 12px;
+}
+
+.filters .active {
+  background: #202427;
+  color: #fff;
+  border-color: #202427;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #ded9cf;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.photo {
+  aspect-ratio: 16 / 9;
+  background: #dfe8e3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: #235347;
+}
+
+.photo span {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.content {
+  padding: 14px;
+}
+
+h2 {
+  font-size: 18px;
+  line-height: 1.25;
+  margin: 0 0 8px;
+}
+
+.location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #62605a;
+  margin: 0;
+}
+
+.price {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 12px 0 4px;
+}
+
+.meta {
+  margin: 0;
+  color: #3f4548;
+}
+
+.description {
+  color: #62605a;
+  min-height: 44px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actions button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 680px) {
+  main {
+    padding: 18px;
+  }
+
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
