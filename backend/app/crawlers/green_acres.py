@@ -2,12 +2,12 @@ import base64
 import html
 import json
 import re
-import unicodedata
 from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
 
+from app.cities import canonical_city_name, city_slug
 from app.crawlers.base import BaseCrawler, CrawledListing
 
 
@@ -16,13 +16,12 @@ TARGET_URLS = [
     "https://www.green-acres.fr/immobilier/frejus",
     "https://www.green-acres.fr/immobilier/saint-raphael",
 ]
-CITY_SLUGS = {
-    "frejus": "frejus",
-    "fréjus": "frejus",
-    "saint-raphael": "saint-raphael",
-    "saint-raphaël": "saint-raphael",
-    "saint raphael": "saint-raphael",
-    "saint raphaël": "saint-raphael",
+# Known postal codes for the target cities, used to backfill the postal code
+# when Green-Acres' localisation text doesn't include one. Purely a display
+# convenience; the city name itself always goes through canonical_city_name.
+_KNOWN_POSTAL_CODES = {
+    "frejus": "83600",
+    "saint-raphael": "83700",
 }
 HOUSE_WORDS = ("maison", "villa", "propriete", "propriété", "demeure")
 APARTMENT_WORDS = ("appartement", "studio", "t2", "t3", "t4")
@@ -34,15 +33,6 @@ def _number(value: str | None) -> int | None:
         return None
     digits = re.sub(r"\D+", "", html.unescape(value))
     return int(digits) if digits else None
-
-
-def _city_slug(city: str) -> str:
-    key = city.strip().lower()
-    if key in CITY_SLUGS:
-        return CITY_SLUGS[key]
-    normalized = unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode("ascii")
-    normalized = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
-    return normalized
 
 
 def _decode_url(encoded: str | None) -> str | None:
@@ -61,13 +51,20 @@ def _text(node) -> str:
 
 
 def _city_and_postal(raw: str) -> tuple[str, str | None]:
+    """Extract (canonical city name, postal code) from a localisation blob.
+
+    Green-Acres' localisation text is typically "City (12345)" or just
+    "City". The postal code is read from parentheses when present, otherwise
+    falls back to a small known-cities table (purely a display convenience,
+    it does not affect matching/deduplication).
+    """
     value = html.unescape(raw)
-    if "Saint" in value and "Rapha" in value:
-        return "Saint-Raphael", "83700"
-    if "Frejus" in value or "Fréjus" in value:
-        return "Frejus", "83600"
-    city = value.split("(")[0].strip() or "Unknown"
-    return city, None
+    postal_match = re.search(r"\((\d{4,5})\)", value)
+    raw_city = value.split("(")[0].strip() or "Unknown"
+    city = canonical_city_name(raw_city)
+
+    postal_code = postal_match.group(1) if postal_match else _KNOWN_POSTAL_CODES.get(city_slug(city))
+    return city, postal_code
 
 
 def _extract_photos(card) -> list[str]:
@@ -133,7 +130,7 @@ class GreenAcresCrawler(BaseCrawler):
     def from_cities(cls, cities: list[str]) -> "GreenAcresCrawler":
         urls = []
         for city in cities:
-            slug = _city_slug(city)
+            slug = city_slug(city)
             if slug:
                 urls.append(f"{GREEN_ACRES_BASE_URL}/immobilier/{slug}")
         return cls(urls=sorted(set(urls)) or TARGET_URLS)

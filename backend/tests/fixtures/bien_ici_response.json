@@ -1,0 +1,35 @@
+{
+  "realEstateAds": [
+    {
+      "id": 555111,
+      "propertyType": "house",
+      "title": "Villa contemporaine avec piscine",
+      "description": "Superbe villa contemporaine de plain-pied, 4 chambres, piscine a debordement, proche des plages de Saint-Raphael.",
+      "city": "Saint-Raphaël",
+      "postalCode": "83700",
+      "price": 620000,
+      "surfaceArea": 145,
+      "landSurfaceArea": 800,
+      "roomsQuantity": 6,
+      "bedroomsQuantity": 4,
+      "energyClassification": "C",
+      "photos": [
+        {"url": "https://cdn.bienici.com/photos/555111-1.jpg"},
+        {"url": "https://cdn.bienici.com/photos/555111-2.jpg"}
+      ]
+    },
+    {
+      "id": 555222,
+      "propertyType": "flat",
+      "title": "Appartement T2 vue mer",
+      "description": "Appartement T2 avec balcon et vue mer.",
+      "city": "Saint-Raphaël",
+      "postalCode": "83700",
+      "price": 210000,
+      "surfaceArea": 45,
+      "roomsQuantity": 2,
+      "bedroomsQuantity": 1,
+      "photos": []
+    }
+  ]
+}

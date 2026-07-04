@@ -1,30 +1,32 @@
 import html
 import json
 import re
-import unicodedata
 from urllib.parse import urlencode
 
 import httpx
 from bs4 import BeautifulSoup
 
+from app.cities import canonical_city_name, city_slug
 from app.crawlers.base import BaseCrawler, CrawledListing
 
 
 BIEN_ICI_BASE_URL = "https://www.bienici.com"
 TARGET_CITIES = ["Frejus", "Saint-Raphael"]
 
+# Bien'ici's place search resolves faster with a postal code suffix for
+# known target cities. This is purely a query-building convenience; the city
+# name stored on the listing always goes through canonical_city_name.
+_KNOWN_POSTAL_CODES = {
+    "frejus": "83600",
+    "saint-raphael": "83700",
+}
+
 
 def _city_query(city: str) -> str:
-    normalized = unicodedata.normalize("NFKD", city.strip()).encode("ascii", "ignore").decode("ascii")
-    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
-    postal_codes = {
-        "frejus": "83600",
-        "saint-raphael": "83700",
-        "saint-raphael-83700": "83700",
-    }
-    if normalized in postal_codes:
-        return f"{normalized}-{postal_codes[normalized]}"
-    return normalized
+    slug = city_slug(city)
+    if slug in _KNOWN_POSTAL_CODES:
+        return f"{slug}-{_KNOWN_POSTAL_CODES[slug]}"
+    return slug
 
 
 def _first_number(value) -> int | None:
@@ -138,7 +140,7 @@ class BienIciCrawler(BaseCrawler):
             source_id=source_id,
             url=f"{BIEN_ICI_BASE_URL}/annonce/{source_id}",
             title=html.unescape(ad.get("title") or "Annonce Bien'ici"),
-            city=city.replace("é", "e") if city == "Fréjus" else city,
+            city=canonical_city_name(city),
             postal_code=str(ad.get("postalCode")) if ad.get("postalCode") else None,
             price_eur=_first_number(ad.get("price")),
             living_area_m2=_first_number(ad.get("surfaceArea")),
