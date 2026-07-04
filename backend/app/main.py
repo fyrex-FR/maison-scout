@@ -1,6 +1,6 @@
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
@@ -11,7 +11,7 @@ from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.db import get_db
 from app.ingest import run_crawler
-from app.models import CrawlRun, Listing, SearchProfile, User, UserListingState
+from app.models import ComparisonItem, CrawlRun, Listing, SearchProfile, User, UserListingState
 from app.schemas import (
     AuthRequest,
     AuthResponse,
@@ -100,13 +100,24 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
     }
     if profile_cities:
         listings = [listing for listing in listings if canonical_city_name(listing.city) in profile_cities]
+    return attach_user_context(db, user, listings)
+
+
+def attach_user_context(db: Session, user: User, listings: list[Listing]) -> list[Listing]:
+    """Attach per-user status/note/score onto listings not owned by the DB row itself."""
     profiles = list(
         db.scalars(select(SearchProfile).where(SearchProfile.user_id == user.id, SearchProfile.enabled == True)).all()  # noqa: E712
     )
+    listing_ids = [listing.id for listing in listings]
     states = {
         state.listing_id: state
-        for state in db.scalars(select(UserListingState).where(UserListingState.user_id == user.id)).all()
-    }
+        for state in db.scalars(
+            select(UserListingState).where(
+                UserListingState.user_id == user.id,
+                UserListingState.listing_id.in_(listing_ids),
+            )
+        ).all()
+    } if listing_ids else {}
     for listing in listings:
         state = states.get(listing.id)
         listing.status = state.status if state else "new"
@@ -196,6 +207,66 @@ def update_listing_status(
     listing.status = state.status
     listing.note = state.note
     return listing
+
+
+COMPARISON_LIMIT = 4
+
+
+@app.get("/api/comparison", response_model=list[ListingOut])
+def list_comparison(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Listing]:
+    stmt = (
+        select(Listing)
+        .join(ComparisonItem, ComparisonItem.listing_id == Listing.id)
+        .where(ComparisonItem.user_id == user.id)
+        .options(selectinload(Listing.sources), selectinload(Listing.photos))
+        .order_by(ComparisonItem.added_at)
+    )
+    listings = list(db.scalars(stmt).all())
+    return attach_user_context(db, user, listings)
+
+
+@app.post("/api/comparison/{listing_id}", response_model=list[ListingOut])
+def add_to_comparison(
+    listing_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[Listing]:
+    listing = db.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    existing = db.scalar(
+        select(ComparisonItem).where(ComparisonItem.user_id == user.id, ComparisonItem.listing_id == listing_id)
+    )
+    if existing is None:
+        # Insert first, then verify the count on the committed state rather than
+        # check-then-insert: two concurrent adds can both pass a pre-insert count
+        # check before either commits, silently exceeding the limit.
+        item = ComparisonItem(user_id=user.id, listing_id=listing_id)
+        db.add(item)
+        db.commit()
+        count = db.scalar(
+            select(func.count()).select_from(ComparisonItem).where(ComparisonItem.user_id == user.id)
+        )
+        if count > COMPARISON_LIMIT:
+            db.delete(item)
+            db.commit()
+            raise HTTPException(status_code=400, detail=f"Comparatif complet ({COMPARISON_LIMIT} annonces maximum)")
+    return list_comparison(user, db)
+
+
+@app.delete("/api/comparison/{listing_id}", response_model=list[ListingOut])
+def remove_from_comparison(
+    listing_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[Listing]:
+    existing = db.scalar(
+        select(ComparisonItem).where(ComparisonItem.user_id == user.id, ComparisonItem.listing_id == listing_id)
+    )
+    if existing is not None:
+        db.delete(existing)
+        db.commit()
+    return list_comparison(user, db)
 
 
 @app.get("/api/search-profiles", response_model=list[SearchProfileOut])

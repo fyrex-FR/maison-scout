@@ -33,6 +33,9 @@
   --color-danger: #b0402f;
   --color-danger-bg: #fbe9e5;
 
+  --color-info: #2f6690;
+  --color-info-bg: #e6eef4;
+
   /* Typography */
   --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -320,6 +323,44 @@ textarea {
   to {
     transform: rotate(360deg);
   }
+}
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-ink-soft);
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: var(--color-brand);
+  color: var(--color-brand-dark);
+}
+
+.ghost:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.compare-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-info);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.compare-error {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-5);
 }
 
 .icon-button {
@@ -887,6 +928,13 @@ h2 {
   color: var(--color-danger);
 }
 
+.actions button.action-compare:hover,
+.actions button.action-compare.is-active {
+  background: var(--color-info-bg);
+  border-color: rgba(47, 102, 144, 0.3);
+  color: var(--color-info);
+}
+
 /* ==========================================================================
    Modals
    ========================================================================== */
@@ -1134,6 +1182,126 @@ h2 {
 .modal.small .primary {
   margin-top: var(--space-2);
   width: 100%;
+}
+
+/* ==========================================================================
+   Comparison table
+   ========================================================================== */
+
+.compare-modal {
+  max-width: 1040px;
+}
+
+.compare-empty {
+  color: var(--color-ink-soft);
+  margin: 0;
+}
+
+.compare-table-wrap {
+  overflow-x: auto;
+}
+
+.compare-table {
+  width: 100%;
+  /* border-collapse: collapse breaks position: sticky on td/th in most engines. */
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  font-size: 14px;
+}
+
+.compare-table tbody tr:last-child th,
+.compare-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.compare-table thead th {
+  vertical-align: top;
+  min-width: 160px;
+}
+
+.compare-row-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  color: var(--color-ink-soft);
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--color-surface);
+}
+
+.compare-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-soft);
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
+}
+
+.compare-remove:hover {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-color: var(--color-danger-bg);
+}
+
+.compare-photo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-brand-light);
+  color: var(--color-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-2);
+}
+
+.compare-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.compare-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 13.5px;
+  line-height: 1.35;
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.compare-title:hover {
+  color: var(--color-brand-dark);
+}
+
+.compare-price {
+  font-weight: 800;
+  color: var(--color-brand-dark);
+}
+
+.compare-note {
+  color: var(--color-ink-soft);
+  max-width: 220px;
+  white-space: pre-wrap;
 }
 
 /* ==========================================================================

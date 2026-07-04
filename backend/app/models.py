@@ -76,6 +76,16 @@ class UserListingState(Base):
     listing: Mapped[Listing] = relationship(back_populates="user_states")
 
 
+class ComparisonItem(Base):
+    __tablename__ = "comparison_items"
+    __table_args__ = (UniqueConstraint("user_id", "listing_id", name="uq_comparison_user_listing"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ListingSource(Base):
     __tablename__ = "listing_sources"
     __table_args__ = (UniqueConstraint("source", "source_id", name="uq_listing_source"),)

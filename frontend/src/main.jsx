@@ -11,6 +11,7 @@ import {
   Phone,
   Plus,
   Ruler,
+  Scale,
   Search,
   Loader2,
   Save,
@@ -32,6 +33,11 @@ const FILTERS = [
 function formatPrice(value) {
   if (!value) return "Prix NC";
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
+}
+
+function pricePerM2(listing) {
+  if (!listing.price_eur || !listing.living_area_m2) return "?";
+  return `${formatPrice(Math.round(listing.price_eur / listing.living_area_m2))} / m²`;
 }
 
 function scoreTier(score) {
@@ -85,6 +91,9 @@ function App() {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [error, setError] = useState("");
+  const [comparison, setComparison] = useState([]);
+  const [comparisonError, setComparisonError] = useState("");
+  const [showComparison, setShowComparison] = useState(false);
 
   function authHeaders() {
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -92,11 +101,12 @@ function App() {
 
   async function loadListings() {
     if (!token) return;
-    const [meResponse, listingsResponse, runsResponse, profilesResponse] = await Promise.all([
+    const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse] = await Promise.all([
       fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
       fetch(`${API_URL}/api/listings`, { headers: authHeaders() }),
       fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
       fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
+      fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
     ]);
     if (meResponse.status === 401) {
       logout();
@@ -106,6 +116,7 @@ function App() {
     setListings(await listingsResponse.json());
     setRuns(await runsResponse.json());
     setProfiles(await profilesResponse.json());
+    setComparison(await comparisonResponse.json());
   }
 
   async function submitAuth(event) {
@@ -133,6 +144,8 @@ function App() {
     setListings([]);
     setRuns([]);
     setProfiles([]);
+    setComparison([]);
+    setShowComparison(false);
   }
 
   async function runAllCrawlers() {
@@ -156,6 +169,34 @@ function App() {
 
   async function saveNote(id, note) {
     await setListingStatus(id, undefined, note);
+  }
+
+  const comparisonIds = useMemo(() => new Set(comparison.map((listing) => listing.id)), [comparison]);
+
+  async function addToComparison(id) {
+    setComparisonError("");
+    const response = await fetch(`${API_URL}/api/comparison/${id}`, { method: "POST", headers: authHeaders() });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null);
+      setComparisonError(detail?.detail || "Impossible d'ajouter au comparatif");
+      return;
+    }
+    setComparison(await response.json());
+  }
+
+  async function removeFromComparison(id) {
+    const response = await fetch(`${API_URL}/api/comparison/${id}`, { method: "DELETE", headers: authHeaders() });
+    if (response.ok) {
+      setComparison(await response.json());
+    }
+  }
+
+  function toggleComparison(id) {
+    if (comparisonIds.has(id)) {
+      removeFromComparison(id);
+    } else {
+      addToComparison(id);
+    }
   }
 
   async function addCity(event) {
@@ -294,11 +335,21 @@ function App() {
             {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
             {loading ? "Scan en cours..." : "Scanner"}
           </button>
+          <button
+            className="ghost compare-trigger"
+            onClick={() => setShowComparison(true)}
+            disabled={comparison.length === 0}
+          >
+            <Scale size={18} />
+            Comparer
+            {comparison.length > 0 && <span className="compare-count">{comparison.length}</span>}
+          </button>
           <button className="icon-button" title="Déconnexion" onClick={logout}>
             <LogOut size={18} />
           </button>
         </div>
       </header>
+      {comparisonError && <p className="error compare-error">{comparisonError}</p>}
 
       <section className="profiles">
         <div className="profile-list">
@@ -426,6 +477,13 @@ function App() {
                       onClick={() => setListingStatus(listing.id, "rejected")}
                     >
                       <X size={18} />
+                    </button>
+                    <button
+                      className={`action-compare${comparisonIds.has(listing.id) ? " is-active" : ""}`}
+                      title={comparisonIds.has(listing.id) ? "Retirer du comparatif" : "Ajouter au comparatif"}
+                      onClick={() => toggleComparison(listing.id)}
+                    >
+                      <Scale size={18} />
                     </button>
                   </div>
                 </div>
@@ -571,6 +629,124 @@ function App() {
               <Save size={18} />
               Enregistrer
             </button>
+          </section>
+        </div>
+      )}
+
+      {showComparison && (
+        <div className="modal-backdrop" onClick={() => setShowComparison(false)}>
+          <section className="modal compare-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" title="Fermer" onClick={() => setShowComparison(false)}>
+              <X size={18} />
+            </button>
+            <h2>
+              <Scale size={18} style={{ verticalAlign: "-3px", marginRight: 6, color: "var(--color-brand)" }} />
+              Comparatif ({comparison.length}/{4})
+            </h2>
+            {comparison.length === 0 ? (
+              <p className="compare-empty">
+                Ajoute des annonces au comparatif depuis leurs cartes pour les retrouver ici.
+              </p>
+            ) : (
+              <div className="compare-table-wrap">
+                <table className="compare-table">
+                  <thead>
+                    <tr>
+                      <th className="compare-row-label"></th>
+                      {comparison.map((listing) => (
+                        <th key={listing.id}>
+                          <button
+                            className="compare-remove"
+                            title="Retirer du comparatif"
+                            onClick={() => removeFromComparison(listing.id)}
+                          >
+                            <X size={14} />
+                          </button>
+                          <div className="compare-photo">
+                            {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={26} />}
+                          </div>
+                          <p className="compare-title" onClick={() => openListing(listing)}>
+                            {listing.title}
+                          </p>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th className="compare-row-label">Prix</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id} className="compare-price">
+                          {formatPrice(listing.price_eur)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Prix / m²</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>{pricePerM2(listing)}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Surface habitable</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>{listing.living_area_m2 ? `${listing.living_area_m2} m²` : "?"}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Terrain</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>{listing.land_area_m2 ? `${listing.land_area_m2} m²` : "?"}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Chambres</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>{listing.bedrooms ?? "?"}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Ville</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>
+                          {listing.city} {listing.postal_code || ""}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Source</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>
+                          {listing.sources[0]?.url ? (
+                            <a href={listing.sources[0].url} target="_blank" rel="noreferrer" className="source">
+                              {listing.sources[0].source}
+                            </a>
+                          ) : (
+                            "?"
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Score</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id}>
+                          <span className={`score-badge ${scoreTier(listing.score)}`}>{listing.score ?? "-"} / 100</span>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th className="compare-row-label">Note privée</th>
+                      {comparison.map((listing) => (
+                        <td key={listing.id} className="compare-note">
+                          {listing.note || "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         </div>
       )}
