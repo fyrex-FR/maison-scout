@@ -86,6 +86,14 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
         .order_by(Listing.score.desc().nullslast(), Listing.updated_at.desc())
     )
     listings = list(db.scalars(stmt).all())
+    profile_cities = {
+        city.lower()
+        for city in db.scalars(
+            select(SearchProfile.city).where(SearchProfile.user_id == user.id, SearchProfile.enabled == True)  # noqa: E712
+        ).all()
+    }
+    if profile_cities:
+        listings = [listing for listing in listings if listing.city.lower() in profile_cities]
     states = {
         state.listing_id: state
         for state in db.scalars(select(UserListingState).where(UserListingState.user_id == user.id)).all()
