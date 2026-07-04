@@ -2,6 +2,7 @@ import base64
 import html
 import json
 import re
+import unicodedata
 from urllib.parse import urljoin
 
 import httpx
@@ -33,6 +34,15 @@ def _number(value: str | None) -> int | None:
         return None
     digits = re.sub(r"\D+", "", html.unescape(value))
     return int(digits) if digits else None
+
+
+def _city_slug(city: str) -> str:
+    key = city.strip().lower()
+    if key in CITY_SLUGS:
+        return CITY_SLUGS[key]
+    normalized = unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode("ascii")
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    return normalized
 
 
 def _decode_url(encoded: str | None) -> str | None:
@@ -123,7 +133,7 @@ class GreenAcresCrawler(BaseCrawler):
     def from_cities(cls, cities: list[str]) -> "GreenAcresCrawler":
         urls = []
         for city in cities:
-            slug = CITY_SLUGS.get(city.strip().lower())
+            slug = _city_slug(city)
             if slug:
                 urls.append(f"{GREEN_ACRES_BASE_URL}/immobilier/{slug}")
         return cls(urls=sorted(set(urls)) or TARGET_URLS)
