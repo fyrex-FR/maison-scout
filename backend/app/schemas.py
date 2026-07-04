@@ -51,6 +51,7 @@ class AuthRequest(BaseModel):
     email: str
     password: str
     display_name: str | None = None
+    invite_code: str | None = None
 
 
 class UserOut(BaseModel):

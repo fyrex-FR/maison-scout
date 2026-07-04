@@ -19,7 +19,7 @@ function App() {
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(false);
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ email: "", password: "", display_name: "" });
+  const [authForm, setAuthForm] = useState({ email: "", password: "", display_name: "", invite_code: "" });
   const [newCity, setNewCity] = useState("");
   const [cityCriteria, setCityCriteria] = useState({
     max_price_eur: "",
@@ -166,11 +166,18 @@ function App() {
           <p>Connecte-toi pour suivre tes villes, trier les annonces et lancer les scans.</p>
           <form onSubmit={submitAuth}>
             {authMode === "register" && (
-              <input
-                placeholder="Nom affiché"
-                value={authForm.display_name}
-                onChange={(event) => setAuthForm({ ...authForm, display_name: event.target.value })}
-              />
+              <>
+                <input
+                  placeholder="Nom affiché"
+                  value={authForm.display_name}
+                  onChange={(event) => setAuthForm({ ...authForm, display_name: event.target.value })}
+                />
+                <input
+                  placeholder="Code invitation"
+                  value={authForm.invite_code}
+                  onChange={(event) => setAuthForm({ ...authForm, invite_code: event.target.value })}
+                />
+              </>
             )}
             <input
               placeholder="Email"

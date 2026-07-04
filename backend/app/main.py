@@ -57,6 +57,9 @@ def health() -> dict[str, str]:
 def register(payload: AuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
     if not settings.allow_open_registration:
         raise HTTPException(status_code=403, detail="Registration disabled")
+    invite_codes = settings.invite_code_set
+    if invite_codes and (payload.invite_code or "").strip() not in invite_codes:
+        raise HTTPException(status_code=403, detail="Invalid invite code")
     email = payload.email.strip().lower()
     if not email or len(payload.password) < 8:
         raise HTTPException(status_code=400, detail="Email and 8+ char password required")
