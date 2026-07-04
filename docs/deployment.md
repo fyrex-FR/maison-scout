@@ -57,17 +57,19 @@ docker build \
   frontend
 ```
 
-## First crawler
+## Crawlers
 
-The first production crawler is Green-Acres:
+Run every configured source:
+
+```text
+POST /api/crawl/all
+```
+
+Available source-specific endpoints:
 
 ```text
 POST /api/crawl/green-acres
+POST /api/crawl/bien-ici
 ```
 
-It currently scans:
-
-- Frejus
-- Saint-Raphael
-
-It keeps only house/villa-style listings and skips apartments, land, parking, and commercial listings.
+The crawler reads active user search cities from the database. It keeps only house/villa-style listings and skips apartments, land, parking, and commercial listings where the source payload makes that detectable.

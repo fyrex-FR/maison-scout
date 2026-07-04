@@ -290,6 +290,18 @@ h2 {
   text-decoration: none;
 }
 
+.source-badge {
+  background: #e8f0ec;
+  border: 1px solid #c9d8d1;
+  border-radius: 999px;
+  color: #235347;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  margin: 0 8px 12px 0;
+  padding: 4px 8px;
+}
+
 .note-preview {
   background: #f4f2ec;
   border-radius: 8px;

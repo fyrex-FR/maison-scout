@@ -81,9 +81,9 @@ function App() {
     setProfiles([]);
   }
 
-  async function runGreenAcresCrawl() {
+  async function runAllCrawlers() {
     setLoading(true);
-    await fetch(`${API_URL}/api/crawl/green-acres`, { method: "POST", headers: authHeaders() });
+    await fetch(`${API_URL}/api/crawl/all`, { method: "POST", headers: authHeaders() });
     await loadListings();
     setLoading(false);
   }
@@ -212,7 +212,7 @@ function App() {
           <p>{user?.display_name || "Compte"} · annonces centralisees par ville suivie.</p>
         </div>
         <div className="topbar-actions">
-          <button className="primary" onClick={runGreenAcresCrawl} disabled={loading}>
+          <button className="primary" onClick={runAllCrawlers} disabled={loading}>
             <RefreshCw size={18} />
             {loading ? "Scan..." : "Scanner"}
           </button>
@@ -299,6 +299,7 @@ function App() {
               </p>
               <p className="description">{listing.description}</p>
               {listing.note && <p className="note-preview">{listing.note}</p>}
+              {listing.sources[0]?.source && <span className="source-badge">{listing.sources[0].source}</span>}
               <a className="source" href={listing.sources[0]?.url} target="_blank" rel="noreferrer">
                 Voir l'annonce source
               </a>

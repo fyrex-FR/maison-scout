@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
 from app.config import settings
+from app.crawlers.bien_ici import BienIciCrawler
 from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.db import Base, engine, get_db
@@ -259,16 +260,47 @@ async def crawl_green_acres(
     x_crawl_secret: str | None = Header(default=None),
 ) -> dict[str, int | str]:
     require_crawl_access(authorization, x_crawl_secret)
-    cities = list(
-        db.scalars(
-            select(SearchProfile.city).where(
-                SearchProfile.enabled == True,  # noqa: E712
-                SearchProfile.source == "green-acres",
-            )
-        ).all()
-    )
+    cities = active_search_cities(db)
     run: CrawlRun = await run_crawler(db, GreenAcresCrawler.from_cities(cities))
     return {"status": run.status, "found_count": run.found_count}
+
+
+@app.post("/api/crawl/bien-ici")
+async def crawl_bien_ici(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict[str, int | str]:
+    require_crawl_access(authorization, x_crawl_secret)
+    run: CrawlRun = await run_crawler(db, BienIciCrawler.from_cities(active_search_cities(db)))
+    return {"status": run.status, "found_count": run.found_count}
+
+
+@app.post("/api/crawl/all")
+async def crawl_all(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict[str, int | str | list[dict[str, int | str]]]:
+    require_crawl_access(authorization, x_crawl_secret)
+    cities = active_search_cities(db)
+    crawlers = [GreenAcresCrawler.from_cities(cities), BienIciCrawler.from_cities(cities)]
+    runs = []
+    for crawler in crawlers:
+        run = await run_crawler(db, crawler)
+        runs.append({"source": run.source, "status": run.status, "found_count": run.found_count})
+    return {
+        "status": "ok" if all(run["status"] == "ok" for run in runs) else "partial",
+        "found_count": sum(int(run["found_count"]) for run in runs),
+        "runs": runs,
+    }
+
+
+def active_search_cities(db: Session) -> list[str]:
+    cities = list(
+        db.scalars(select(SearchProfile.city).where(SearchProfile.enabled == True)).all()  # noqa: E712
+    )
+    return sorted(set(cities))
 
 
 def require_crawl_access(authorization: str | None, x_crawl_secret: str | None) -> None:
