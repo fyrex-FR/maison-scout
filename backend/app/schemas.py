@@ -38,6 +38,55 @@ class ListingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SemanticDedupListingOut(BaseModel):
+    id: int
+    title: str
+    city: str
+    postal_code: str | None
+    price_eur: int | None
+    living_area_m2: int | None
+    land_area_m2: int | None
+    rooms: int | None
+    bedrooms: int | None
+    energy_rating: str | None
+    description: str | None
+    sources: list[ListingSourceOut]
+    photos: list[ListingPhotoOut]
+
+    model_config = {"from_attributes": True}
+
+
+class SemanticDedupCandidateOut(BaseModel):
+    left: SemanticDedupListingOut
+    right: SemanticDedupListingOut
+    same_city: bool
+    price_delta_ratio: float | None
+    living_area_delta_m2: int | None
+    source_overlap: list[str]
+
+
+class SemanticDedupDecisionRequest(BaseModel):
+    left_listing_id: int | None = None
+    right_listing_id: int | None = None
+    target_listing_id: int | None = None
+    duplicate_listing_id: int | None = None
+    confidence: int | None = None
+    reason: str | None = None
+    model: str | None = None
+
+
+class SemanticDedupDecisionOut(BaseModel):
+    id: int
+    left_listing_id: int
+    right_listing_id: int
+    status: str
+    confidence: int | None
+    reason: str | None
+    model: str | None
+
+    model_config = {"from_attributes": True}
+
+
 class ListingStatusUpdate(BaseModel):
     status: str | None = None
     note: str | None = None

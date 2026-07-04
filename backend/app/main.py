@@ -11,7 +11,7 @@ from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.db import get_db
 from app.ingest import run_crawler
-from app.models import ComparisonItem, CrawlRun, Listing, SearchProfile, User, UserListingState
+from app.models import ComparisonItem, CrawlRun, Listing, SearchProfile, SemanticDedupDecision, User, UserListingState
 from app.schemas import (
     AuthRequest,
     AuthResponse,
@@ -19,10 +19,14 @@ from app.schemas import (
     ListingOut,
     ListingStatusUpdate,
     ScoreFactor,
+    SemanticDedupCandidateOut,
+    SemanticDedupDecisionOut,
+    SemanticDedupDecisionRequest,
     SearchProfileCreate,
     SearchProfileOut,
     UserOut,
 )
+from app.semantic_dedup import merge_listings, reject_pair, semantic_candidate_pairs
 
 app = FastAPI(title="Maison Scout API")
 
@@ -388,6 +392,84 @@ async def crawl_all(
         "status": "ok" if all(run["status"] == "ok" for run in runs) else "partial",
         "found_count": sum(int(run["found_count"]) for run in runs),
         "runs": runs,
+    }
+
+
+@app.get("/api/semantic-dedup/candidates", response_model=list[SemanticDedupCandidateOut])
+def list_semantic_dedup_candidates(
+    days: int = 14,
+    limit: int = 50,
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    require_crawl_access(authorization, x_crawl_secret)
+    return [_dedup_candidate_payload(left, right) for left, right in semantic_candidate_pairs(db, days=days, limit=limit)]
+
+
+@app.post("/api/semantic-dedup/merge", response_model=ListingOut)
+def merge_semantic_duplicate(
+    payload: SemanticDedupDecisionRequest,
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> Listing:
+    require_crawl_access(authorization, x_crawl_secret)
+    if not payload.target_listing_id or not payload.duplicate_listing_id:
+        raise HTTPException(status_code=400, detail="target_listing_id and duplicate_listing_id are required")
+    try:
+        listing = merge_listings(
+            db,
+            target_listing_id=payload.target_listing_id,
+            duplicate_listing_id=payload.duplicate_listing_id,
+            confidence=payload.confidence,
+            reason=payload.reason,
+            model=payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    listing.status = "new"
+    listing.note = None
+    listing.score_breakdown = None
+    return listing
+
+
+@app.post("/api/semantic-dedup/reject", response_model=SemanticDedupDecisionOut)
+def reject_semantic_duplicate(
+    payload: SemanticDedupDecisionRequest,
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SemanticDedupDecision:
+    require_crawl_access(authorization, x_crawl_secret)
+    if not payload.left_listing_id or not payload.right_listing_id:
+        raise HTTPException(status_code=400, detail="left_listing_id and right_listing_id are required")
+    return reject_pair(
+        db,
+        left_listing_id=payload.left_listing_id,
+        right_listing_id=payload.right_listing_id,
+        confidence=payload.confidence,
+        reason=payload.reason,
+        model=payload.model,
+    )
+
+
+def _dedup_candidate_payload(left: Listing, right: Listing) -> dict:
+    left_sources = {source.source for source in left.sources}
+    right_sources = {source.source for source in right.sources}
+    price_delta_ratio = None
+    if left.price_eur and right.price_eur:
+        price_delta_ratio = abs(left.price_eur - right.price_eur) / max(left.price_eur, right.price_eur)
+    living_area_delta_m2 = None
+    if left.living_area_m2 and right.living_area_m2:
+        living_area_delta_m2 = abs(left.living_area_m2 - right.living_area_m2)
+    return {
+        "left": left,
+        "right": right,
+        "same_city": canonical_city_name(left.city) == canonical_city_name(right.city),
+        "price_delta_ratio": price_delta_ratio,
+        "living_area_delta_m2": living_area_delta_m2,
+        "source_overlap": sorted(left_sources & right_sources),
     }
 
 

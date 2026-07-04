@@ -86,6 +86,20 @@ class ComparisonItem(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class SemanticDedupDecision(Base):
+    __tablename__ = "semantic_dedup_decisions"
+    __table_args__ = (UniqueConstraint("left_listing_id", "right_listing_id", name="uq_semantic_dedup_pair"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    left_listing_id: Mapped[int] = mapped_column(Integer, index=True)
+    right_listing_id: Mapped[int] = mapped_column(Integer, index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    confidence: Mapped[int | None] = mapped_column(Integer)
+    reason: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ListingSource(Base):
     __tablename__ = "listing_sources"
     __table_args__ = (UniqueConstraint("source", "source_id", name="uq_listing_source"),)
