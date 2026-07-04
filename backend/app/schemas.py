@@ -33,6 +33,7 @@ class ListingOut(BaseModel):
 
 class ListingStatusUpdate(BaseModel):
     status: str
+    note: str | None = None
 
 
 class CrawlRunOut(BaseModel):
@@ -41,5 +42,40 @@ class CrawlRunOut(BaseModel):
     status: str
     found_count: int
     error: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str | None = None
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    display_name: str
+
+    model_config = {"from_attributes": True}
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserOut
+
+
+class SearchProfileCreate(BaseModel):
+    name: str | None = None
+    city: str
+    source: str = "green-acres"
+
+
+class SearchProfileOut(BaseModel):
+    id: int
+    name: str
+    city: str
+    source: str
+    enabled: bool
 
     model_config = {"from_attributes": True}

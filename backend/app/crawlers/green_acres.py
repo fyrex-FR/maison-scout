@@ -15,6 +15,14 @@ TARGET_URLS = [
     "https://www.green-acres.fr/immobilier/frejus",
     "https://www.green-acres.fr/immobilier/saint-raphael",
 ]
+CITY_SLUGS = {
+    "frejus": "frejus",
+    "fréjus": "frejus",
+    "saint-raphael": "saint-raphael",
+    "saint-raphaël": "saint-raphael",
+    "saint raphael": "saint-raphael",
+    "saint raphaël": "saint-raphael",
+}
 HOUSE_WORDS = ("maison", "villa", "propriete", "propriété", "demeure")
 APARTMENT_WORDS = ("appartement", "studio", "t2", "t3", "t4")
 EXCLUDED_PATH_PARTS = ("/appartement/", "/terrain/", "/local-commercial/", "/parking/")
@@ -110,6 +118,15 @@ class GreenAcresCrawler(BaseCrawler):
 
     def __init__(self, urls: list[str] | None = None) -> None:
         self.urls = urls or TARGET_URLS
+
+    @classmethod
+    def from_cities(cls, cities: list[str]) -> "GreenAcresCrawler":
+        urls = []
+        for city in cities:
+            slug = CITY_SLUGS.get(city.strip().lower())
+            if slug:
+                urls.append(f"{GREEN_ACRES_BASE_URL}/immobilier/{slug}")
+        return cls(urls=sorted(set(urls)) or TARGET_URLS)
 
     async def crawl(self) -> list[CrawledListing]:
         headers = {

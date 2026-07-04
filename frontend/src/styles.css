@@ -18,12 +18,49 @@ main {
   padding: 28px;
 }
 
+.auth-layout {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.auth-panel {
+  width: min(420px, 100%);
+  background: #fff;
+  border: 1px solid #ded9cf;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.auth-panel form,
+.profiles form {
+  display: grid;
+  gap: 10px;
+}
+
+input {
+  border: 1px solid #d6d1c6;
+  border-radius: 8px;
+  font: inherit;
+  padding: 11px 12px;
+}
+
+.error {
+  color: #a53d2d;
+  margin: 0;
+}
+
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 24px;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 8px;
 }
 
 h1 {
@@ -38,7 +75,10 @@ h1 {
 
 .primary,
 .filters button,
-.actions button {
+.actions button,
+.icon-button,
+.profiles button,
+.link-button {
   border: 1px solid #d6d1c6;
   background: #ffffff;
   border-radius: 8px;
@@ -53,6 +93,43 @@ h1 {
   background: #235347;
   border-color: #235347;
   color: white;
+}
+
+.icon-button,
+.profiles button {
+  width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.link-button {
+  margin-top: 12px;
+  padding: 9px 12px;
+}
+
+.profiles {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.profile-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-list span {
+  background: #fff;
+  border: 1px solid #ded9cf;
+  border-radius: 999px;
+  padding: 8px 12px;
+}
+
+.profiles form {
+  display: flex;
 }
 
 .filters {
@@ -200,6 +277,11 @@ h2 {
   }
 
   .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profiles {
     align-items: stretch;
     flex-direction: column;
   }
