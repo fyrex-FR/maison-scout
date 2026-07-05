@@ -290,3 +290,26 @@ class InviteCodeCreate(BaseModel):
 
 class InviteCodeUpdate(BaseModel):
     active: bool
+
+
+class IngestListingIn(BaseModel):
+    source_id: str
+    url: str
+    title: str
+    city: str
+    postal_code: str | None = None
+    price_eur: int | None = None
+    living_area_m2: int | None = None
+    land_area_m2: int | None = None
+    rooms: int | None = None
+    bedrooms: int | None = None
+    energy_rating: str | None = None
+    description: str | None = None
+    photos: list[str] = Field(default_factory=list)
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class IngestBatchIn(BaseModel):
+    source: str
+    items: list[IngestListingIn]

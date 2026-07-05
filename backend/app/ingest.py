@@ -134,6 +134,25 @@ def upsert_listing(db: Session, item: CrawledListing) -> Listing:
     return listing
 
 
+class ExternalBatchCrawler:
+    """Adapts a pre-fetched batch of listings to the BaseCrawler interface.
+
+    External scrapers (e.g. OpenClaw, which drives a real browser to get past
+    Cloudflare/DataDome on protected sources) cannot run inside this backend.
+    They fetch listings themselves and POST them to the ingestion endpoint.
+    This adapter lets that batch flow through the exact same `run_crawler` ->
+    `upsert_listing` pipeline as any in-process crawler, so dedup, scoring,
+    photo refresh, price history and CrawlRun bookkeeping stay identical.
+    """
+
+    def __init__(self, source: str, items: list[CrawledListing]) -> None:
+        self.source = source
+        self._items = items
+
+    async def crawl(self) -> list[CrawledListing]:
+        return self._items
+
+
 async def run_crawler(db: Session, crawler) -> CrawlRun:
     run = CrawlRun(source=crawler.source, status="running")
     db.add(run)

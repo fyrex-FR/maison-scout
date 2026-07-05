@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
 from app.cities import canonical_city_name
 from app.config import settings
+from app.crawlers.base import CrawledListing
 from app.crawlers.bien_ici import BienIciCrawler
 from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.crawlers.pap import PapCrawler
 from app.db import get_db
-from app.ingest import run_crawler
+from app.ingest import ExternalBatchCrawler, run_crawler
 from app.insights import auto_flags, price_insight
 from app.models import (
     ComparisonItem,
@@ -43,6 +44,7 @@ from app.schemas import (
     InviteCodeCreate,
     InviteCodeOut,
     InviteCodeUpdate,
+    IngestBatchIn,
     ListingAIAnalysisOut,
     ListingAIAnalysisWrite,
     ListingMatchScoreOut,
@@ -729,6 +731,64 @@ async def crawl_all(
         "found_count": sum(int(run["found_count"]) for run in runs),
         "runs": runs,
     }
+
+
+MAX_INGEST_BATCH_SIZE = 500
+
+
+@app.post("/api/ingest/listings")
+async def ingest_listings(
+    payload: IngestBatchIn,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Generic ingestion endpoint for external scrapers (e.g. OpenClaw).
+
+    Sources like PAP or SeLoger are protected by Cloudflare/DataDome and
+    can't be scraped from this backend's process. An external scraper with a
+    real browser fetches the listings and POSTs the already-extracted data
+    here. From this point on it flows through the exact same pipeline as any
+    in-process crawler (ExternalBatchCrawler -> run_crawler -> upsert_listing
+    for each item), so dedup, scoring, photo refresh, price history and city
+    normalization are all handled automatically -- no separate logic here.
+    """
+    require_crawl_secret(x_crawl_secret)  # server secret only, no user bearer token
+
+    source = payload.source.strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="source is required")
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="items must not be empty")
+    if len(payload.items) > MAX_INGEST_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"items exceeds the maximum batch size of {MAX_INGEST_BATCH_SIZE}",
+        )
+
+    items = [
+        CrawledListing(
+            source=source,
+            source_id=item.source_id,
+            url=item.url,
+            title=item.title,
+            city=item.city,
+            postal_code=item.postal_code,
+            price_eur=item.price_eur,
+            living_area_m2=item.living_area_m2,
+            land_area_m2=item.land_area_m2,
+            rooms=item.rooms,
+            bedrooms=item.bedrooms,
+            energy_rating=item.energy_rating,
+            description=item.description,
+            photos=item.photos or [],
+            latitude=item.latitude,
+            longitude=item.longitude,
+        )
+        for item in payload.items
+    ]
+
+    run: CrawlRun = await run_crawler(db, ExternalBatchCrawler(source, items))
+    return {"status": run.status, "source": run.source, "found_count": run.found_count, "error": run.error}
 
 
 @app.get("/api/semantic-dedup/candidates", response_model=list[SemanticDedupCandidateOut])
