@@ -17,6 +17,9 @@ from app.cities import canonical_city_name, city_slug
         ("St Raphael", "Saint-Raphael"),
         ("saint raphael", "Saint-Raphael"),
         ("SAINT RAPHAEL", "Saint-Raphael"),
+        ("Aulnay sous bois", "Aulnay Sous Bois"),
+        ("Aulnay-sous-bois", "Aulnay Sous Bois"),
+        ("Aulnay-Sous-Bois", "Aulnay Sous Bois"),
     ],
 )
 def test_known_aliases_resolve_to_canonical_name(raw, expected):

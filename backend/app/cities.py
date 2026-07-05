@@ -20,6 +20,7 @@ _CITY_ALIASES: dict[str, str] = {
     "saint raphael": "Saint-Raphael",
     "st raphaël": "Saint-Raphael",
     "saint raphaël": "Saint-Raphael",
+    "aulnay sous bois": "Aulnay Sous Bois",
 }
 
 
