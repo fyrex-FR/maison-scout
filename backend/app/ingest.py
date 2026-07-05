@@ -90,6 +90,7 @@ def upsert_listing(db: Session, item: CrawledListing) -> Listing:
     if source:
         listing = source.listing
         source.last_seen_at = datetime.utcnow()
+        listing.off_market_at = None
     else:
         # New (source, source_id) pair: it might still be a listing we
         # already know about under a different source (cross-posted ad).
@@ -98,6 +99,7 @@ def upsert_listing(db: Session, item: CrawledListing) -> Listing:
             db.add(
                 ListingSource(listing_id=listing.id, source=item.source, source_id=item.source_id, url=item.url)
             )
+            listing.off_market_at = None
         else:
             listing = Listing(title=item.title, city=canonical_city)
             db.add(listing)

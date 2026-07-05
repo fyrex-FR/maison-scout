@@ -50,6 +50,9 @@ class ListingOut(BaseModel):
     is_new: bool = False
     latitude: float | None = None
     longitude: float | None = None
+    off_market: bool = False
+    off_market_at: datetime | None = None
+    days_on_market: int | None = None
 
     model_config = {"from_attributes": True}
 

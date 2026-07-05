@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
+  Archive,
   BedDouble,
   Building2,
   CheckCheck,
@@ -82,6 +83,13 @@ function formatShortDate(isoString) {
   } catch {
     return isoString;
   }
+}
+
+function daysOnMarketLabel(listing) {
+  if (listing?.days_on_market === null || listing?.days_on_market === undefined) return null;
+  const days = listing.days_on_market;
+  const unit = days === 1 ? "jour" : "jours";
+  return listing.off_market ? `Retirée après ${days} ${unit}` : `Sur le marché depuis ${days} ${unit}`;
 }
 
 function scoreTier(score) {
@@ -192,6 +200,7 @@ function App() {
     min_bedrooms: "",
     sort: "score",
     price_dropped_only: false,
+    include_off_market: false,
   });
   const [selectedListing, setSelectedListing] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
@@ -222,10 +231,14 @@ function App() {
   async function loadListings() {
     if (!token) return;
     try {
+      const listingsUrl = new URL(`${API_URL}/api/listings`);
+      if (standardFilters.include_off_market) {
+        listingsUrl.searchParams.set("include_off_market", "true");
+      }
       const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse, naturalProfilesResponse] =
         await Promise.all([
           fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
-          fetch(`${API_URL}/api/listings`, { headers: authHeaders() }),
+          fetch(listingsUrl, { headers: authHeaders() }),
           fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
           fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
           fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
@@ -511,6 +524,12 @@ function App() {
   useEffect(() => {
     loadListings();
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    loadListings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standardFilters.include_off_market]);
 
   useEffect(() => {
     if (!selectedListing || !token) {
@@ -905,6 +924,15 @@ function App() {
           <TrendingDown size={14} />
           Baisse de prix uniquement
         </label>
+        <label className="standard-filters-checkbox">
+          <input
+            type="checkbox"
+            checked={standardFilters.include_off_market}
+            onChange={(event) => setStandardFilters({ ...standardFilters, include_off_market: event.target.checked })}
+          />
+          <Archive size={14} />
+          Inclure les annonces retirées
+        </label>
         <button
           type="button"
           className="ghost compact"
@@ -916,6 +944,7 @@ function App() {
               min_bedrooms: "",
               sort: "score",
               price_dropped_only: false,
+              include_off_market: false,
             })
           }
         >
@@ -986,10 +1015,16 @@ function App() {
       ) : (
         <section className="grid">
           {filtered.map((listing) => (
-            <article className="card" key={listing.id}>
+            <article className={`card${listing.off_market ? " is-off-market" : ""}`} key={listing.id}>
               <div className="photo" onClick={() => openListing(listing)}>
                 {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={44} />}
                 {listing.sources[0]?.source && <span className="source-flag">{listing.sources[0].source}</span>}
+                {listing.off_market && (
+                  <span className="off-market-badge" title="Annonce retirée du marché">
+                    <Archive size={12} />
+                    Retirée
+                  </span>
+                )}
                 {listing.is_new === true && (
                   <span className="new-badge" title="Nouvelle annonce">
                     <Sparkle size={12} />
@@ -1115,6 +1150,12 @@ function App() {
             </div>
             <h2>
               {activeListing.title}
+              {activeListing.off_market && (
+                <span className="off-market-badge off-market-badge-inline" title="Annonce retirée du marché">
+                  <Archive size={12} />
+                  Retirée
+                </span>
+              )}
               {activeListing.is_new === true && (
                 <span className="new-badge new-badge-inline" title="Nouvelle annonce">
                   <Sparkle size={12} />
@@ -1156,6 +1197,12 @@ function App() {
                 <BedDouble size={14} />
                 {activeListing.bedrooms || "?"} ch.
               </span>
+              {daysOnMarketLabel(activeListing) && (
+                <span className="meta-item meta-item-muted">
+                  <Archive size={14} />
+                  {daysOnMarketLabel(activeListing)}
+                </span>
+              )}
             </p>
             <p className="modal-description">{activeListing.description}</p>
 

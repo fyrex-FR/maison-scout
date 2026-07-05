@@ -21,6 +21,7 @@ from app.crawlers.pap import PapCrawler
 from app.db import get_db
 from app.ingest import ExternalBatchCrawler, run_crawler
 from app.insights import auto_flags, price_insight
+from app.lifecycle import refresh_off_market_status
 from app.models import (
     ComparisonItem,
     CrawlRun,
@@ -172,7 +173,11 @@ def me(user: User = Depends(get_current_user)) -> UserOut:
 
 
 @app.get("/api/listings", response_model=list[ListingOut])
-def list_listings(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[Listing]:
+def list_listings(
+    include_off_market: bool = False,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[Listing]:
     stmt = (
         select(Listing)
         .options(selectinload(Listing.sources), selectinload(Listing.photos))
@@ -188,6 +193,24 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
     if profile_cities:
         listings = [listing for listing in listings if canonical_city_name(listing.city) in profile_cities]
     listings = [listing for listing in listings if listing_matches_any_profile(listing, profiles_for_user(db, user))]
+    if not include_off_market:
+        # An off-market listing the user has favorited/marked-to-call must
+        # stay visible (labeled "retirée") rather than silently vanish --
+        # only drop off-market listings with no such kept-alive user state.
+        kept_alive_listing_ids = {
+            state.listing_id
+            for state in db.scalars(
+                select(UserListingState).where(
+                    UserListingState.user_id == user.id,
+                    UserListingState.status.in_(["favorite", "call"]),
+                )
+            ).all()
+        }
+        listings = [
+            listing
+            for listing in listings
+            if listing.off_market_at is None or listing.id in kept_alive_listing_ids
+        ]
     return attach_user_context(db, user, listings)
 
 
@@ -240,8 +263,19 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
         listing.match_dealbreakers = match.dealbreakers_json if match else []
         listing.active_profile_name = active_profile.name if active_profile else None
 
+        is_off_market = listing.off_market_at is not None
+        listing.off_market = is_off_market
+        end_of_market_period = listing.off_market_at if is_off_market else datetime.utcnow()
+        listing.days_on_market = max(0, (end_of_market_period - listing.created_at).days)
+        # Negotiation-lever signal only makes sense for still-active listings.
+        days_on_market_for_flags = None if is_off_market else listing.days_on_market
+
         city_median = city_median_price_per_m2.get(canonical_city_name(listing.city))
-        listing.auto_flags = auto_flags(listing, city_median_price_per_m2=city_median)
+        listing.auto_flags = auto_flags(
+            listing,
+            city_median_price_per_m2=city_median,
+            days_on_market=days_on_market_for_flags,
+        )
         prices_chronological = price_histories.get(listing.id, [])
         insight = price_insight(prices_chronological, listing.price_eur)
         listing.price_dropped = insight["dropped"]
@@ -726,10 +760,13 @@ async def crawl_all(
     for crawler in crawlers:
         run = await run_crawler(db, crawler)
         runs.append({"source": run.source, "status": run.status, "found_count": run.found_count})
+    lifecycle_result = refresh_off_market_status(db)
+    db.commit()
     return {
         "status": "ok" if all(run["status"] == "ok" for run in runs) else "partial",
         "found_count": sum(int(run["found_count"]) for run in runs),
         "runs": runs,
+        "marked_off_market": lifecycle_result["marked_off_market"],
     }
 
 
@@ -788,7 +825,18 @@ async def ingest_listings(
     ]
 
     run: CrawlRun = await run_crawler(db, ExternalBatchCrawler(source, items))
-    return {"status": run.status, "source": run.source, "found_count": run.found_count, "error": run.error}
+    # 48h default threshold guards against false positives here: this endpoint
+    # ingests one source at a time, so a listing only carried by a source that
+    # hasn't been re-ingested yet must not look "stale" after a single batch.
+    lifecycle_result = refresh_off_market_status(db)
+    db.commit()
+    return {
+        "status": run.status,
+        "source": run.source,
+        "found_count": run.found_count,
+        "error": run.error,
+        "marked_off_market": lifecycle_result["marked_off_market"],
+    }
 
 
 @app.get("/api/semantic-dedup/candidates", response_model=list[SemanticDedupCandidateOut])

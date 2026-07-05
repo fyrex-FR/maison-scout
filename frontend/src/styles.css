@@ -1246,6 +1246,51 @@ h1 {
   border: 1px solid rgba(201, 138, 60, 0.35);
 }
 
+.off-market-badge {
+  position: absolute;
+  left: 10px;
+  top: 78px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-pill);
+  padding: 5px 10px;
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(4px);
+  background: rgba(28, 33, 31, 0.72);
+  color: #fff;
+  border: 1px solid rgba(28, 33, 31, 0.4);
+  text-transform: uppercase;
+}
+
+.off-market-badge-inline {
+  position: static;
+  display: inline-flex;
+  margin-left: var(--space-3);
+  vertical-align: middle;
+  box-shadow: none;
+  backdrop-filter: none;
+  background: var(--color-surface-muted);
+  color: var(--color-ink-soft);
+  border: 1px solid var(--color-border-strong);
+  text-transform: none;
+}
+
+.card.is-off-market .photo img {
+  opacity: 0.78;
+}
+
+.card.is-off-market .photo {
+  filter: grayscale(0.25);
+}
+
+.meta-item-muted {
+  color: var(--color-ink-faint);
+}
+
 .content {
   padding: var(--space-4) var(--space-4) var(--space-4);
   display: flex;

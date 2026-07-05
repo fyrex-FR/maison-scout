@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     invite_codes: str = ""
     crawl_secret: str = ""
     admin_emails: str = ""
+    off_market_after_hours: int = 48
 
     @property
     def cors_origin_list(self) -> list[str]:

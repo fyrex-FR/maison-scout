@@ -181,6 +181,50 @@ def test_price_threshold_not_triggered_when_price_or_area_missing():
 
 
 # ---------------------------------------------------------------------------
+# auto_flags -- long_on_market
+# ---------------------------------------------------------------------------
+
+
+def test_long_on_market_flag_present_at_60_days():
+    listing = make_listing()
+    flags = auto_flags(listing, days_on_market=60)
+    assert {
+        "code": "long_on_market",
+        "label": "Sur le marché depuis plus de 2 mois",
+        "severity": "info",
+    } in flags
+
+
+def test_long_on_market_flag_present_above_60_days():
+    listing = make_listing()
+    flags = auto_flags(listing, days_on_market=120)
+    codes = [f["code"] for f in flags]
+    assert "long_on_market" in codes
+
+
+def test_long_on_market_flag_absent_at_59_days():
+    listing = make_listing()
+    flags = auto_flags(listing, days_on_market=59)
+    codes = [f["code"] for f in flags]
+    assert "long_on_market" not in codes
+
+
+def test_long_on_market_flag_absent_when_none():
+    listing = make_listing()
+    flags = auto_flags(listing, days_on_market=None)
+    codes = [f["code"] for f in flags]
+    assert "long_on_market" not in codes
+
+
+def test_long_on_market_is_an_info_flag_ordered_after_other_infos():
+    listing = make_listing(land_area_m2=None)  # triggers "no_land" info flag too
+    flags = auto_flags(listing, days_on_market=90)
+    codes = [f["code"] for f in flags]
+    assert codes.index("no_land") < codes.index("long_on_market")
+    assert flags[codes.index("long_on_market")]["severity"] == "info"
+
+
+# ---------------------------------------------------------------------------
 # price_insight
 # ---------------------------------------------------------------------------
 

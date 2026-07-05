@@ -7,7 +7,7 @@ scripts, ...).
 
 Public API
 ----------
-- ``auto_flags(listing, *, city_median_price_per_m2=None) -> list[dict]``
+- ``auto_flags(listing, *, city_median_price_per_m2=None, days_on_market=None) -> list[dict]``
 - ``price_insight(prices_chronological, current_price) -> dict``
 
 See each function's docstring for the exact contract.
@@ -29,7 +29,12 @@ def _is_missing_number(value: float | int | None) -> bool:
     return value is None or value == 0
 
 
-def auto_flags(listing, *, city_median_price_per_m2: float | None = None) -> list[dict]:
+def auto_flags(
+    listing,
+    *,
+    city_median_price_per_m2: float | None = None,
+    days_on_market: int | None = None,
+) -> list[dict]:
     """Compute deterministic data-quality / pricing signals for a listing.
 
     ``listing`` is expected to expose (at least, via attribute access) the
@@ -38,6 +43,14 @@ def auto_flags(listing, *, city_median_price_per_m2: float | None = None) -> lis
     objects). Any missing/None attribute is treated defensively as "absent"
     rather than raising -- this function must never throw because of missing
     data, including when called with an essentially empty object.
+
+    ``days_on_market``, when provided by the caller, is the number of days
+    the listing has been on the market (only meaningful for still-active
+    listings -- the caller should pass ``None`` for an off-market listing,
+    since suggesting a negotiation lever on a withdrawn listing makes no
+    sense). At 60+ days it surfaces an info-level "long_on_market" flag: a
+    long time on the market is a soft signal that there may be room to
+    negotiate.
 
     Returns a list of ``{"code": str, "label": str, "severity": "warn"|"info"}``
     dicts. "warn" entries are always ordered before "info" entries; the
@@ -121,6 +134,15 @@ def auto_flags(listing, *, city_median_price_per_m2: float | None = None) -> lis
                     "severity": "info",
                 }
             )
+
+    if days_on_market is not None and days_on_market >= 60:
+        info_flags.append(
+            {
+                "code": "long_on_market",
+                "label": "Sur le marché depuis plus de 2 mois",
+                "severity": "info",
+            }
+        )
 
     return warn_flags + info_flags
 
