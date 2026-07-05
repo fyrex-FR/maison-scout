@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BedDouble,
   Building2,
+  CheckCheck,
   Flag,
   Heart,
   Home,
@@ -21,6 +22,7 @@ import {
   Save,
   Settings,
   SlidersHorizontal,
+  Sparkle,
   Sparkles,
   Target,
   TrendingDown,
@@ -46,6 +48,13 @@ function formatPrice(value) {
 function pricePerM2(listing) {
   if (!listing.price_eur || !listing.living_area_m2) return "?";
   return `${formatPrice(Math.round(listing.price_eur / listing.living_area_m2))} / m²`;
+}
+
+function formatPricePerM2(listing) {
+  if (!listing || !listing.price_eur || !listing.living_area_m2) return null;
+  const value = Math.round(listing.price_eur / listing.living_area_m2);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value)} €/m²`;
 }
 
 function formatSignedAmount(value) {
@@ -144,6 +153,8 @@ function App() {
   const [selectedNaturalProfile, setSelectedNaturalProfile] = useState(null);
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [markingSeen, setMarkingSeen] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ email: "", password: "", display_name: "", invite_code: "" });
   const [newCity, setNewCity] = useState("");
@@ -177,25 +188,40 @@ function App() {
 
   async function loadListings() {
     if (!token) return;
-    const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse, naturalProfilesResponse] =
-      await Promise.all([
-        fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
-        fetch(`${API_URL}/api/listings`, { headers: authHeaders() }),
-        fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
-        fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
-        fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
-        fetch(`${API_URL}/api/natural-search-profiles`, { headers: authHeaders() }),
-      ]);
-    if (meResponse.status === 401) {
-      logout();
-      return;
+    try {
+      const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse, naturalProfilesResponse] =
+        await Promise.all([
+          fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
+          fetch(`${API_URL}/api/listings`, { headers: authHeaders() }),
+          fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
+          fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
+          fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
+          fetch(`${API_URL}/api/natural-search-profiles`, { headers: authHeaders() }),
+        ]);
+      if (meResponse.status === 401) {
+        logout();
+        return;
+      }
+      setUser(await meResponse.json());
+      setListings(await listingsResponse.json());
+      setRuns(await runsResponse.json());
+      setProfiles(await profilesResponse.json());
+      setComparison(await comparisonResponse.json());
+      setNaturalProfiles(naturalProfilesResponse.ok ? await naturalProfilesResponse.json() : []);
+    } finally {
+      setInitialLoading(false);
     }
-    setUser(await meResponse.json());
-    setListings(await listingsResponse.json());
-    setRuns(await runsResponse.json());
-    setProfiles(await profilesResponse.json());
-    setComparison(await comparisonResponse.json());
-    setNaturalProfiles(naturalProfilesResponse.ok ? await naturalProfilesResponse.json() : []);
+  }
+
+  async function markAllSeen() {
+    if (!token || markingSeen) return;
+    setMarkingSeen(true);
+    try {
+      await fetch(`${API_URL}/api/listings/mark-seen`, { method: "POST", headers: authHeaders() });
+      await loadListings();
+    } finally {
+      setMarkingSeen(false);
+    }
   }
 
   async function submitAuth(event) {
@@ -227,6 +253,7 @@ function App() {
     setShowComparison(false);
     setNaturalProfiles([]);
     setSelectedNaturalProfile(null);
+    setInitialLoading(true);
   }
 
   async function runAllCrawlers() {
@@ -253,6 +280,7 @@ function App() {
   }
 
   const comparisonIds = useMemo(() => new Set(comparison.map((listing) => listing.id)), [comparison]);
+  const newListingsCount = useMemo(() => listings.filter((listing) => listing.is_new === true).length, [listings]);
 
   async function addToComparison(id) {
     setComparisonError("");
@@ -521,6 +549,20 @@ function App() {
             Comparer
             {comparison.length > 0 && <span className="compare-count">{comparison.length}</span>}
           </button>
+          <button
+            className="ghost mark-seen-trigger"
+            onClick={markAllSeen}
+            disabled={markingSeen || newListingsCount === 0}
+            title="Marquer toutes les annonces comme vues"
+          >
+            {markingSeen ? <Loader2 size={18} className="spin" /> : <CheckCheck size={18} />}
+            Tout marquer comme vu
+            {newListingsCount > 0 && (
+              <span className="new-count">
+                {newListingsCount} nouvelle{newListingsCount > 1 ? "s" : ""}
+              </span>
+            )}
+          </button>
           <button className="icon-button" title="Déconnexion" onClick={logout}>
             <LogOut size={18} />
           </button>
@@ -719,9 +761,30 @@ function App() {
           <strong>{runs[0]?.found_count ?? 0}</strong>
           <span>Trouvées au dernier scan</span>
         </div>
+        {newListingsCount > 0 && (
+          <div className="summary-new">
+            <strong>{newListingsCount}</strong>
+            <span>Nouvelles</span>
+          </div>
+        )}
       </section>
 
-      {filtered.length === 0 ? (
+      {initialLoading ? (
+        <section className="grid" aria-busy="true" aria-label="Chargement des annonces">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <article className="card skeleton-card" key={`skeleton-${index}`}>
+              <div className="skeleton-block skeleton-photo" />
+              <div className="skeleton-content">
+                <div className="skeleton-block skeleton-line skeleton-line-title" />
+                <div className="skeleton-block skeleton-line skeleton-line-short" />
+                <div className="skeleton-block skeleton-line skeleton-line-price" />
+                <div className="skeleton-block skeleton-line" />
+                <div className="skeleton-block skeleton-line skeleton-line-short" />
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : filtered.length === 0 ? (
         <div className="empty-state">
           <span className="empty-state-icon">
             <Search size={24} />
@@ -742,6 +805,12 @@ function App() {
               <div className="photo" onClick={() => openListing(listing)}>
                 {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={44} />}
                 {listing.sources[0]?.source && <span className="source-flag">{listing.sources[0].source}</span>}
+                {listing.is_new === true && (
+                  <span className="new-badge" title="Nouvelle annonce">
+                    <Sparkle size={12} />
+                    Nouveau
+                  </span>
+                )}
                 <span className={`score-badge ${scoreTier(listing.score)}`}>{listing.score ?? "-"} / 100</span>
                 {listing.match_score !== null && listing.match_score !== undefined && (
                   <span className="match-badge" title="Pertinence par rapport à ta recherche IA">
@@ -765,7 +834,10 @@ function App() {
                   <MapPin size={14} />
                   {listing.city} {listing.postal_code || ""}
                 </p>
-                <p className="price">{formatPrice(listing.price_eur)}</p>
+                <p className="price">
+                  {formatPrice(listing.price_eur)}
+                  {formatPricePerM2(listing) && <span className="price-per-m2">{formatPricePerM2(listing)}</span>}
+                </p>
                 {Array.isArray(listing.auto_flags) && listing.auto_flags.length > 0 && (
                   <div className="auto-flags-row">
                     {listing.auto_flags.slice(0, 3).map((flag, index) => (
@@ -856,13 +928,22 @@ function App() {
                 </div>
               ))}
             </div>
-            <h2>{activeListing.title}</h2>
+            <h2>
+              {activeListing.title}
+              {activeListing.is_new === true && (
+                <span className="new-badge new-badge-inline" title="Nouvelle annonce">
+                  <Sparkle size={12} />
+                  Nouveau
+                </span>
+              )}
+            </h2>
             <p className="location">
               <MapPin size={16} />
               {activeListing.city} {activeListing.postal_code || ""}
             </p>
             <p className="price">
               {formatPrice(activeListing.price_eur)}
+              {formatPricePerM2(activeListing) && <span className="price-per-m2">{formatPricePerM2(activeListing)}</span>}
               {activeListing.price_dropped && (
                 <span className="price-drop-badge price-drop-badge-inline" title="Le prix de cette annonce a baissé">
                   <TrendingDown size={12} />
