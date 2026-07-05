@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  AlertTriangle,
   BedDouble,
   Building2,
   Heart,
@@ -8,6 +9,7 @@ import {
   LandPlot,
   LogOut,
   MapPin,
+  Pencil,
   Phone,
   Plus,
   Ruler,
@@ -17,6 +19,8 @@ import {
   Save,
   Settings,
   SlidersHorizontal,
+  Sparkles,
+  Target,
   X,
 } from "lucide-react";
 import "./styles.css";
@@ -48,6 +52,14 @@ function scoreTier(score) {
   return "score-low";
 }
 
+function renderListItem(item) {
+  if (typeof item === "string") return item;
+  if (item && typeof item === "object") {
+    return item.label || item.text || item.reason || JSON.stringify(item);
+  }
+  return String(item);
+}
+
 const EMPTY_STATE_COPY = {
   all: {
     title: "Aucune annonce pour le moment",
@@ -77,6 +89,10 @@ function App() {
   const [listings, setListings] = useState([]);
   const [runs, setRuns] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [naturalProfiles, setNaturalProfiles] = useState([]);
+  const [naturalPromptDraft, setNaturalPromptDraft] = useState("");
+  const [naturalNameDraft, setNaturalNameDraft] = useState("");
+  const [selectedNaturalProfile, setSelectedNaturalProfile] = useState(null);
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(false);
   const [authMode, setAuthMode] = useState("login");
@@ -109,13 +125,15 @@ function App() {
 
   async function loadListings() {
     if (!token) return;
-    const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse] = await Promise.all([
-      fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
-      fetch(`${API_URL}/api/listings`, { headers: authHeaders() }),
-      fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
-      fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
-      fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
-    ]);
+    const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse, naturalProfilesResponse] =
+      await Promise.all([
+        fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/listings`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/natural-search-profiles`, { headers: authHeaders() }),
+      ]);
     if (meResponse.status === 401) {
       logout();
       return;
@@ -125,6 +143,7 @@ function App() {
     setRuns(await runsResponse.json());
     setProfiles(await profilesResponse.json());
     setComparison(await comparisonResponse.json());
+    setNaturalProfiles(naturalProfilesResponse.ok ? await naturalProfilesResponse.json() : []);
   }
 
   async function submitAuth(event) {
@@ -154,6 +173,8 @@ function App() {
     setProfiles([]);
     setComparison([]);
     setShowComparison(false);
+    setNaturalProfiles([]);
+    setSelectedNaturalProfile(null);
   }
 
   async function runAllCrawlers() {
@@ -252,6 +273,53 @@ function App() {
     await loadListings();
   }
 
+  async function createNaturalProfile(event) {
+    event.preventDefault();
+    if (!naturalPromptDraft.trim()) return;
+    await fetch(`${API_URL}/api/natural-search-profiles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        name: naturalNameDraft.trim() || undefined,
+        raw_prompt: naturalPromptDraft.trim(),
+      }),
+    });
+    setNaturalPromptDraft("");
+    setNaturalNameDraft("");
+    await loadListings();
+  }
+
+  async function saveNaturalProfile(profile) {
+    await fetch(`${API_URL}/api/natural-search-profiles/${profile.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        name: profile.name,
+        raw_prompt: profile.raw_prompt,
+        is_active: profile.is_active,
+      }),
+    });
+    setSelectedNaturalProfile(null);
+    await loadListings();
+  }
+
+  async function toggleNaturalProfileActive(profile) {
+    await fetch(`${API_URL}/api/natural-search-profiles/${profile.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ is_active: !profile.is_active }),
+    });
+    await loadListings();
+  }
+
+  async function deleteNaturalProfile(profileId) {
+    await fetch(`${API_URL}/api/natural-search-profiles/${profileId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    await loadListings();
+  }
+
   function openListing(listing) {
     setSelectedListing(listing);
     setNoteDraft(listing.note || "");
@@ -264,7 +332,9 @@ function App() {
   const filtered = useMemo(() => {
     const matchesNumber = (value, filterValue, mode) => {
       if (!filterValue) return true;
-      if (value === null || value === undefined) return false;
+      // Une donnée manquante ne doit pas masquer l'annonce : on préfère
+      // laisser passer plutôt que cacher à tort un bien mal extrait.
+      if (value === null || value === undefined) return true;
       const parsed = Number(filterValue);
       if (!Number.isFinite(parsed)) return true;
       return mode === "max" ? value <= parsed : value >= parsed;
@@ -279,6 +349,11 @@ function App() {
       if (standardFilters.sort === "price") return (a.price_eur ?? Number.MAX_SAFE_INTEGER) - (b.price_eur ?? Number.MAX_SAFE_INTEGER);
       if (standardFilters.sort === "surface") return (b.living_area_m2 ?? 0) - (a.living_area_m2 ?? 0);
       if (standardFilters.sort === "updated") return 0;
+      if (standardFilters.sort === "match") {
+        if (a.match_score === null || a.match_score === undefined) return 1;
+        if (b.match_score === null || b.match_score === undefined) return -1;
+        return b.match_score - a.match_score;
+      }
       return (b.score ?? 0) - (a.score ?? 0);
     });
   }, [listings, status, standardFilters]);
@@ -423,6 +498,62 @@ function App() {
         </form>
       </section>
 
+      <section className="natural-profiles">
+        <div className="natural-profiles-header">
+          <Sparkles size={17} />
+          <span>Recherches en langage naturel</span>
+        </div>
+        {naturalProfiles.length > 0 && (
+          <div className="natural-profile-list">
+            {naturalProfiles.map((profile) => {
+              const pendingAnalysis = !profile.parsed_model && (!profile.criteria_json || Object.keys(profile.criteria_json).length === 0);
+              return (
+                <div className={`natural-profile-card${profile.is_active ? "" : " is-inactive"}`} key={profile.id}>
+                  <div className="natural-profile-card-top">
+                    <p className="natural-profile-name">{profile.name || "Recherche sans nom"}</p>
+                    <div className="natural-profile-card-actions">
+                      <button title="Éditer" onClick={() => setSelectedNaturalProfile(profile)}>
+                        <Pencil size={14} />
+                      </button>
+                      <button title="Supprimer" onClick={() => deleteNaturalProfile(profile.id)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="natural-profile-prompt">{profile.raw_prompt}</p>
+                  <div className="natural-profile-card-footer">
+                    <button
+                      type="button"
+                      className={`natural-profile-toggle${profile.is_active ? " is-active" : ""}`}
+                      onClick={() => toggleNaturalProfileActive(profile)}
+                    >
+                      {profile.is_active ? "Active" : "Désactivée"}
+                    </button>
+                    {pendingAnalysis && <span className="natural-profile-pending">Analyse en attente</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <form className="natural-profile-form" onSubmit={createNaturalProfile}>
+          <input
+            placeholder="Nom (optionnel)"
+            value={naturalNameDraft}
+            onChange={(event) => setNaturalNameDraft(event.target.value)}
+          />
+          <textarea
+            placeholder="Décris ce que tu cherches, ex : 4 chambres minimum, piscine, clim, accès de plain-pied au jardin"
+            value={naturalPromptDraft}
+            onChange={(event) => setNaturalPromptDraft(event.target.value)}
+          />
+          <button className="primary" type="submit">
+            <Plus size={18} />
+            Ajouter cette recherche
+          </button>
+        </form>
+      </section>
+
       <section className="filters">
         {FILTERS.map(([value, label]) => (
           <button key={value} className={status === value ? "active" : ""} onClick={() => setStatus(value)}>
@@ -431,10 +562,11 @@ function App() {
         ))}
       </section>
 
-      <section className="standard-filters" aria-label="Filtres standards">
+      <section className="standard-filters" aria-label="Affiner l'affichage">
         <div className="standard-filters-title">
           <SlidersHorizontal size={17} />
-          <span>Filtres standards</span>
+          <span>Affiner l'affichage</span>
+          <span className="standard-filters-hint">filtre temporaire, non enregistré</span>
         </div>
         <input
           placeholder="Budget max"
@@ -465,6 +597,7 @@ function App() {
           onChange={(event) => setStandardFilters({ ...standardFilters, sort: event.target.value })}
         >
           <option value="score">Score</option>
+          <option value="match">Pertinence (IA)</option>
           <option value="price">Prix croissant</option>
           <option value="surface">Surface décroissante</option>
           <option value="updated">Plus récentes</option>
@@ -523,6 +656,12 @@ function App() {
                 {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={44} />}
                 {listing.sources[0]?.source && <span className="source-flag">{listing.sources[0].source}</span>}
                 <span className={`score-badge ${scoreTier(listing.score)}`}>{listing.score ?? "-"} / 100</span>
+                {listing.match_score !== null && listing.match_score !== undefined && (
+                  <span className="match-badge" title="Pertinence par rapport à ta recherche IA">
+                    <Target size={12} />
+                    {listing.match_score}
+                  </span>
+                )}
               </div>
               <div className="content">
                 <h2 onClick={() => openListing(listing)}>{listing.title}</h2>
@@ -629,6 +768,78 @@ function App() {
               </span>
             </p>
             <p className="modal-description">{activeListing.description}</p>
+
+            {activeListing.ai_summary && (
+              <div className="ai-summary">
+                <h3>
+                  <Sparkles size={14} />
+                  Résumé IA
+                </h3>
+                <p>{activeListing.ai_summary}</p>
+              </div>
+            )}
+
+            {activeListing.red_flags && activeListing.red_flags.length > 0 && (
+              <div className="ai-red-flags">
+                <h3>
+                  <AlertTriangle size={14} />
+                  Points d'attention
+                </h3>
+                <ul>
+                  {activeListing.red_flags.map((flag, index) => (
+                    <li key={`flag-${index}`}>{renderListItem(flag)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {activeListing.match_score !== null && activeListing.match_score !== undefined && (
+              <div className="ai-match">
+                <h3>
+                  <Target size={14} />
+                  Correspondance avec ta recherche
+                  {activeListing.active_profile_name && (
+                    <span className="ai-match-profile">{activeListing.active_profile_name}</span>
+                  )}
+                </h3>
+                <div className="ai-match-score">
+                  <span className={`score-badge ${scoreTier(activeListing.match_score)}`}>
+                    {activeListing.match_score} / 100
+                  </span>
+                </div>
+                {activeListing.match_reasons && activeListing.match_reasons.length > 0 && (
+                  <div className="ai-match-group ai-match-good">
+                    <p className="ai-match-group-title">Points forts</p>
+                    <ul>
+                      {activeListing.match_reasons.map((item, index) => (
+                        <li key={`reason-${index}`}>{renderListItem(item)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {activeListing.match_missing && activeListing.match_missing.length > 0 && (
+                  <div className="ai-match-group ai-match-warn">
+                    <p className="ai-match-group-title">À vérifier</p>
+                    <ul>
+                      {activeListing.match_missing.map((item, index) => (
+                        <li key={`missing-${index}`}>{renderListItem(item)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {activeListing.match_dealbreakers && activeListing.match_dealbreakers.length > 0 && (
+                  <div className="ai-match-group ai-match-bad">
+                    <p className="ai-match-group-title">Points bloquants</p>
+                    <ul>
+                      {activeListing.match_dealbreakers.map((item, index) => (
+                        <li key={`dealbreaker-${index}`}>{renderListItem(item)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeListing.score_breakdown && activeListing.score_breakdown.length > 0 && (
               <div className="score-breakdown">
                 <h3>Détail du score</h3>
@@ -724,6 +935,50 @@ function App() {
               onChange={(event) => setSelectedProfile({ ...selectedProfile, min_bedrooms: event.target.value })}
             />
             <button className="primary" onClick={() => saveProfile(selectedProfile)}>
+              <Save size={18} />
+              Enregistrer
+            </button>
+          </section>
+        </div>
+      )}
+
+      {selectedNaturalProfile && (
+        <div className="modal-backdrop" onClick={() => setSelectedNaturalProfile(null)}>
+          <section className="modal small" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" title="Fermer" onClick={() => setSelectedNaturalProfile(null)}>
+              <X size={18} />
+            </button>
+            <h2>
+              <Sparkles size={18} style={{ verticalAlign: "-3px", marginRight: 6, color: "var(--color-brand)" }} />
+              Recherche en langage naturel
+            </h2>
+            <label className="field-label" htmlFor="natural-profile-name">
+              Nom
+            </label>
+            <input
+              id="natural-profile-name"
+              value={selectedNaturalProfile.name || ""}
+              onChange={(event) => setSelectedNaturalProfile({ ...selectedNaturalProfile, name: event.target.value })}
+            />
+            <label className="field-label" htmlFor="natural-profile-prompt">
+              Description libre
+            </label>
+            <textarea
+              id="natural-profile-prompt"
+              value={selectedNaturalProfile.raw_prompt || ""}
+              onChange={(event) => setSelectedNaturalProfile({ ...selectedNaturalProfile, raw_prompt: event.target.value })}
+            />
+            <label className="field-label" htmlFor="natural-profile-active">
+              <input
+                id="natural-profile-active"
+                type="checkbox"
+                style={{ width: "auto", marginRight: 8 }}
+                checked={!!selectedNaturalProfile.is_active}
+                onChange={(event) => setSelectedNaturalProfile({ ...selectedNaturalProfile, is_active: event.target.checked })}
+              />
+              Recherche active
+            </label>
+            <button className="primary" onClick={() => saveNaturalProfile(selectedNaturalProfile)}>
               <Save size={18} />
               Enregistrer
             </button>
