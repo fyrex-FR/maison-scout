@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -41,6 +43,10 @@ class ListingOut(BaseModel):
     match_missing: list = Field(default_factory=list)
     match_dealbreakers: list = Field(default_factory=list)
     active_profile_name: str | None = None
+    auto_flags: list = Field(default_factory=list)
+    price_dropped: bool = False
+    price_change_abs: int | None = None
+    price_observations: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -242,3 +248,10 @@ class PendingMatchPairOut(BaseModel):
     listing_id: int
     natural_search_profile_id: int
     source_analysis_id: int
+
+
+class PriceHistoryPointOut(BaseModel):
+    price_eur: int
+    observed_at: datetime
+
+    model_config = {"from_attributes": True}

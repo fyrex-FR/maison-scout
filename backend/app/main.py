@@ -1,6 +1,8 @@
+from collections import defaultdict
 from datetime import datetime
 import hashlib
 import json
+import statistics
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,7 @@ from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.db import get_db
 from app.ingest import run_crawler
+from app.insights import auto_flags, price_insight
 from app.models import (
     ComparisonItem,
     CrawlRun,
@@ -22,6 +25,7 @@ from app.models import (
     ListingAIAnalysis,
     ListingMatchScore,
     NaturalSearchProfile,
+    PriceHistory,
     SearchProfile,
     SemanticDedupDecision,
     User,
@@ -43,6 +47,7 @@ from app.schemas import (
     NaturalSearchProfileParseUpdate,
     NaturalSearchProfileUpdate,
     PendingMatchPairOut,
+    PriceHistoryPointOut,
     ScoreFactor,
     SemanticDedupCandidateOut,
     SemanticDedupDecisionOut,
@@ -155,6 +160,8 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
     active_profile = active_natural_search_profile(db, user)
     ai_analyses = ai_analyses_by_listing_id(db, listing_ids)
     match_scores = match_scores_by_listing_id(db, listing_ids, active_profile)
+    price_histories = price_history_by_listing_id(db, listing_ids)
+    city_median_price_per_m2 = median_price_per_m2_by_city(listings)
 
     for listing in listings:
         state = states.get(listing.id)
@@ -174,7 +181,43 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
         listing.match_missing = match.missing_or_uncertain_json if match else []
         listing.match_dealbreakers = match.dealbreakers_json if match else []
         listing.active_profile_name = active_profile.name if active_profile else None
+
+        city_median = city_median_price_per_m2.get(canonical_city_name(listing.city))
+        listing.auto_flags = auto_flags(listing, city_median_price_per_m2=city_median)
+        prices_chronological = price_histories.get(listing.id, [])
+        insight = price_insight(prices_chronological, listing.price_eur)
+        listing.price_dropped = insight["dropped"]
+        listing.price_change_abs = insight["change_abs"]
+        listing.price_observations = insight["count"]
     return listings
+
+
+def price_history_by_listing_id(db: Session, listing_ids: list[int]) -> dict[int, list[int]]:
+    """Chronological (oldest -> newest) price points per listing, in one query."""
+    if not listing_ids:
+        return {}
+    stmt = (
+        select(PriceHistory.listing_id, PriceHistory.price_eur)
+        .where(PriceHistory.listing_id.in_(listing_ids))
+        .order_by(PriceHistory.observed_at)
+    )
+    prices_by_listing_id: dict[int, list[int]] = defaultdict(list)
+    for listing_id, price_eur in db.execute(stmt).all():
+        prices_by_listing_id[listing_id].append(price_eur)
+    return dict(prices_by_listing_id)
+
+
+def median_price_per_m2_by_city(listings: list[Listing]) -> dict[str, float]:
+    """Median price/m2 per canonical city, computed only from the displayed
+    listings that have both a price and a living area (0 treated as unknown).
+    """
+    prices_per_m2_by_city: dict[str, list[float]] = defaultdict(list)
+    for listing in listings:
+        if not listing.price_eur or not listing.living_area_m2:
+            continue
+        city = canonical_city_name(listing.city)
+        prices_per_m2_by_city[city].append(listing.price_eur / listing.living_area_m2)
+    return {city: statistics.median(values) for city, values in prices_per_m2_by_city.items()}
 
 
 def active_natural_search_profile(db: Session, user: User) -> NaturalSearchProfile | None:
@@ -338,6 +381,23 @@ def update_listing_status(
     listing.status = state.status
     listing.note = state.note
     return listing
+
+
+@app.get("/api/listings/{listing_id}/price-history", response_model=list[PriceHistoryPointOut])
+def get_listing_price_history(
+    listing_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[PriceHistory]:
+    listing = db.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    stmt = (
+        select(PriceHistory)
+        .where(PriceHistory.listing_id == listing_id)
+        .order_by(PriceHistory.observed_at)
+    )
+    return list(db.scalars(stmt).all())
 
 
 COMPARISON_LIMIT = 4
