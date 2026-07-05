@@ -16,7 +16,13 @@
       "photos": [
         {"url": "https://cdn.bienici.com/photos/555111-1.jpg"},
         {"url": "https://cdn.bienici.com/photos/555111-2.jpg"}
-      ]
+      ],
+      "blurInfo": {
+        "position": {
+          "lat": 43.4256,
+          "lon": 6.7644
+        }
+      }
     },
     {
       "id": 555222,

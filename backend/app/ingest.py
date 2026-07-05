@@ -117,6 +117,8 @@ def upsert_listing(db: Session, item: CrawledListing) -> Listing:
     listing.bedrooms = item.bedrooms
     listing.energy_rating = item.energy_rating
     listing.description = item.description
+    listing.latitude = item.latitude
+    listing.longitude = item.longitude
     listing.score = score_listing(listing)
 
     if item.price_eur and item.price_eur != old_price:

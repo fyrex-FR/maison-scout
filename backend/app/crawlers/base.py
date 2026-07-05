@@ -17,6 +17,8 @@ class CrawledListing:
     energy_rating: str | None = None
     description: str | None = None
     photos: list[str] = field(default_factory=list)
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class BaseCrawler:

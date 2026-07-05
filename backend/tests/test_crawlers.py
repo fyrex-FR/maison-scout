@@ -51,6 +51,8 @@ def test_bien_ici_parses_house_ad_from_json_fixture():
     assert listing.bedrooms == 4
     assert listing.energy_rating == "C"
     assert len(listing.photos) == 2
+    assert listing.latitude == 43.4256
+    assert listing.longitude == 6.7644
 
 
 def test_bien_ici_filters_out_non_house_ads():
@@ -59,3 +61,39 @@ def test_bien_ici_filters_out_non_house_ads():
 
     flat_ad = data["realEstateAds"][1]
     assert crawler._is_house_ad(flat_ad) is False
+
+
+def test_bien_ici_parse_ad_without_coords_yields_none_lat_lon():
+    data = json.loads((FIXTURES_DIR / "bien_ici_response.json").read_text(encoding="utf-8"))
+    crawler = BienIciCrawler()
+
+    # The flat ad fixture has no blurInfo/position block at all.
+    flat_ad = data["realEstateAds"][1]
+    listing = crawler._parse_ad(flat_ad)
+
+    assert listing.latitude is None
+    assert listing.longitude is None
+
+
+def test_bien_ici_coords_rejects_out_of_range_values():
+    crawler = BienIciCrawler()
+    ad = {
+        "id": "999",
+        "city": "Frejus",
+        "blurInfo": {"position": {"lat": 999.0, "lon": 6.7}},
+    }
+
+    listing = crawler._parse_ad(ad)
+
+    assert listing.latitude is None
+    assert listing.longitude is None
+
+
+def test_green_acres_parses_listing_without_coords_by_default():
+    html_content = (FIXTURES_DIR / "green_acres_listing.html").read_text(encoding="utf-8")
+    crawler = GreenAcresCrawler()
+
+    listings = crawler._parse(html_content)
+
+    assert listings[0].latitude is None
+    assert listings[0].longitude is None

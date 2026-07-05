@@ -1,6 +1,7 @@
 import html
 import json
 import re
+from math import isfinite
 from urllib.parse import urlencode
 
 import httpx
@@ -57,6 +58,62 @@ def _photos(ad: dict) -> list[str]:
         if url and url not in urls:
             urls.append(url)
     return urls[:8]
+
+
+def _valid_coords(lat, lon) -> tuple[float | None, float | None]:
+    """Validate and coerce a (lat, lon) pair, returning (None, None) if invalid."""
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return None, None
+    if not (isfinite(lat_f) and isfinite(lon_f)):
+        return None, None
+    if not (-90.0 <= lat_f <= 90.0):
+        return None, None
+    if not (-180.0 <= lon_f <= 180.0):
+        return None, None
+    return lat_f, lon_f
+
+
+def _coords(ad: dict) -> tuple[float | None, float | None]:
+    """Best-effort, defensive extraction of (latitude, longitude) from a
+    Bien'ici real-estate-ad payload.
+
+    Bien'ici's public JSON has been observed to expose coordinates under a
+    few different shapes depending on the endpoint/version, so we try each
+    plausible location in turn and stop at the first one that yields a
+    valid pair. Any unexpected structure (missing keys, non-dict values,
+    non-numeric coordinates) is swallowed and simply skipped.
+    """
+    if not isinstance(ad, dict):
+        return None, None
+
+    candidates = []
+
+    blur_info = ad.get("blurInfo")
+    if isinstance(blur_info, dict):
+        position = blur_info.get("position")
+        if isinstance(position, dict):
+            candidates.append((position.get("lat"), position.get("lon")))
+
+    position = ad.get("position")
+    if isinstance(position, dict):
+        candidates.append((position.get("lat"), position.get("lon")))
+        candidates.append((position.get("latitude"), position.get("longitude")))
+
+    candidates.append((ad.get("latitude"), ad.get("longitude")))
+    candidates.append((ad.get("lat"), ad.get("lng")))
+    candidates.append((ad.get("lat"), ad.get("lon")))
+
+    for lat, lon in candidates:
+        if lat is None or lon is None:
+            continue
+        lat_f, lon_f = _valid_coords(lat, lon)
+        if lat_f is not None and lon_f is not None:
+            return lat_f, lon_f
+
+    return None, None
 
 
 class BienIciCrawler(BaseCrawler):
@@ -135,6 +192,7 @@ class BienIciCrawler(BaseCrawler):
     def _parse_ad(self, ad: dict) -> CrawledListing:
         source_id = str(ad["id"])
         city = ad.get("city") or "Unknown"
+        latitude, longitude = _coords(ad)
         return CrawledListing(
             source=self.source,
             source_id=source_id,
@@ -150,4 +208,6 @@ class BienIciCrawler(BaseCrawler):
             energy_rating=ad.get("energyClassification"),
             description=_clean_description(ad.get("description")),
             photos=_photos(ad),
+            latitude=latitude,
+            longitude=longitude,
         )

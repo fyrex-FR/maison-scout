@@ -2,6 +2,7 @@ import base64
 import html
 import json
 import re
+from math import isfinite
 from urllib.parse import urljoin
 
 import httpx
@@ -108,6 +109,40 @@ def _extract_characteristics(card) -> tuple[int | None, int | None, int | None]:
     return living_area, land_area, rooms
 
 
+def _coords(card) -> tuple[float | None, float | None]:
+    """Best-effort, defensive extraction of (latitude, longitude) from an
+    announce card's data attributes.
+
+    Green-Acres' listing HTML rarely exposes coordinates directly, but when
+    it does it has been observed as data-lat/data-lng (or data-latitude/
+    data-longitude) attributes on the card element itself. Returns
+    (None, None) whenever the attributes are absent or not valid numbers.
+    """
+    if card is None:
+        return None, None
+
+    for lat_attr, lon_attr in (
+        ("data-lat", "data-lng"),
+        ("data-latitude", "data-longitude"),
+    ):
+        raw_lat = card.get(lat_attr)
+        raw_lon = card.get(lon_attr)
+        if raw_lat is None or raw_lon is None:
+            continue
+        try:
+            lat = float(raw_lat)
+            lon = float(raw_lon)
+        except (TypeError, ValueError):
+            continue
+        if not (isfinite(lat) and isfinite(lon)):
+            continue
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            continue
+        return lat, lon
+
+    return None, None
+
+
 def _extract_bedrooms(description: str) -> int | None:
     patterns = (
         r"(\d+)\s+chambres?",
@@ -174,6 +209,7 @@ class GreenAcresCrawler(BaseCrawler):
 
             city, postal_code = _city_and_postal(_text(card.select_one(".announce-localisation")))
             living_area, land_area, rooms = _extract_characteristics(card)
+            latitude, longitude = _coords(card)
 
             listings.append(
                 CrawledListing(
@@ -191,6 +227,8 @@ class GreenAcresCrawler(BaseCrawler):
                     energy_rating=None,
                     description=description[:1200] if description else None,
                     photos=_extract_photos(card),
+                    latitude=latitude,
+                    longitude=longitude,
                 )
             )
 
