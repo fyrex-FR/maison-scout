@@ -53,6 +53,10 @@ class ListingOut(BaseModel):
     off_market: bool = False
     off_market_at: datetime | None = None
     days_on_market: int | None = None
+    dvf_median_price_per_m2: float | None = None
+    dvf_period: str | None = None
+    dvf_delta_ratio: float | None = None
+    risks: dict | None = None
 
     model_config = {"from_attributes": True}
 

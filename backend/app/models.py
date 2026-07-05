@@ -25,6 +25,8 @@ class Listing(Base):
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
     off_market_at: Mapped[datetime | None] = mapped_column(DateTime)
+    georisques_json: Mapped[dict | None] = mapped_column(JSON)
+    georisques_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -223,6 +225,25 @@ class CrawlRun(Base):
     error: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class CityMarketStat(Base):
+    """Cached DVF (real-sale, Etalab) market stats for a canonical city.
+
+    Refreshed at most every ~30 days by app.enrichment.dvf.refresh_city_stats
+    since it involves downloading per-commune CSVs over HTTP; not meant to be
+    recomputed on every request.
+    """
+
+    __tablename__ = "city_market_stats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    city: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    insee_code: Mapped[str | None] = mapped_column(String(8))
+    median_price_per_m2_house: Mapped[float | None] = mapped_column(Float)
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    period_label: Mapped[str | None] = mapped_column(String(64))
+    computed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class InviteCode(Base):

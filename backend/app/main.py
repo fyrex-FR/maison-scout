@@ -19,10 +19,13 @@ from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.crawlers.pap import PapCrawler
 from app.db import get_db
+from app.enrichment.dvf import refresh_city_stats
+from app.enrichment.georisques import enrich_listings_risks
 from app.ingest import ExternalBatchCrawler, run_crawler
 from app.insights import auto_flags, price_insight
 from app.lifecycle import refresh_off_market_status
 from app.models import (
+    CityMarketStat,
     ComparisonItem,
     CrawlRun,
     InviteCode,
@@ -243,6 +246,7 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
     match_scores = match_scores_by_listing_id(db, listing_ids, active_profile)
     price_histories = price_history_by_listing_id(db, listing_ids)
     city_median_price_per_m2 = median_price_per_m2_by_city(listings)
+    market_stats_by_city = market_stats_by_city_for_listings(db, listings)
 
     for listing in listings:
         state = states.get(listing.id)
@@ -271,10 +275,29 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
         days_on_market_for_flags = None if is_off_market else listing.days_on_market
 
         city_median = city_median_price_per_m2.get(canonical_city_name(listing.city))
+
+        market_stat = market_stats_by_city.get(canonical_city_name(listing.city))
+        listing.dvf_median_price_per_m2 = market_stat.median_price_per_m2_house if market_stat else None
+        listing.dvf_period = market_stat.period_label if market_stat else None
+        listing.dvf_delta_ratio = None
+        if (
+            market_stat is not None
+            and market_stat.median_price_per_m2_house
+            and listing.price_eur
+            and listing.living_area_m2
+        ):
+            listing_price_per_m2 = listing.price_eur / listing.living_area_m2
+            listing.dvf_delta_ratio = round(
+                (listing_price_per_m2 / market_stat.median_price_per_m2_house) - 1, 3
+            )
+        listing.risks = listing.georisques_json
+
         listing.auto_flags = auto_flags(
             listing,
             city_median_price_per_m2=city_median,
             days_on_market=days_on_market_for_flags,
+            dvf_delta_ratio=listing.dvf_delta_ratio,
+            risks=listing.risks,
         )
         prices_chronological = price_histories.get(listing.id, [])
         insight = price_insight(prices_chronological, listing.price_eur)
@@ -312,6 +335,15 @@ def median_price_per_m2_by_city(listings: list[Listing]) -> dict[str, float]:
         city = canonical_city_name(listing.city)
         prices_per_m2_by_city[city].append(listing.price_eur / listing.living_area_m2)
     return {city: statistics.median(values) for city, values in prices_per_m2_by_city.items()}
+
+
+def market_stats_by_city_for_listings(db: Session, listings: list[Listing]) -> dict[str, CityMarketStat]:
+    """Load CityMarketStat rows for the displayed listings' cities, one query."""
+    cities = {canonical_city_name(listing.city) for listing in listings}
+    if not cities:
+        return {}
+    stmt = select(CityMarketStat).where(CityMarketStat.city.in_(cities))
+    return {stat.city: stat for stat in db.scalars(stmt).all()}
 
 
 def active_natural_search_profile(db: Session, user: User) -> NaturalSearchProfile | None:
@@ -768,6 +800,35 @@ async def crawl_all(
         "runs": runs,
         "marked_off_market": lifecycle_result["marked_off_market"],
     }
+
+
+@app.post("/api/enrich/all")
+async def enrich_all(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict:
+    """Refresh open-data enrichment: DVF market stats + Georisques risks.
+
+    Meant to be triggered by the same cron as /api/crawl/all (same auth
+    model: X-Crawl-Secret or a valid user bearer token). Both passes talk to
+    third-party open-data APIs that are outside our control, so a failure in
+    either one is caught and reported in the response rather than bubbling
+    up as a 500 -- a flaky external API should never break the cron.
+    """
+    require_crawl_access(authorization, x_crawl_secret)
+
+    try:
+        dvf_result = await refresh_city_stats(db, active_search_cities(db))
+    except Exception as exc:
+        dvf_result = {"refreshed": 0, "skipped": 0, "failed": 0, "error": str(exc)}
+
+    try:
+        risks_result = await enrich_listings_risks(db)
+    except Exception as exc:
+        risks_result = {"checked": 0, "failed": 0, "error": str(exc)}
+
+    return {"dvf": dvf_result, "risks": risks_result}
 
 
 MAX_INGEST_BATCH_SIZE = 500

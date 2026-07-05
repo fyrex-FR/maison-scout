@@ -328,3 +328,116 @@ def test_price_insight_dropped_then_recovered_still_flags_drop_only_if_last_belo
     assert result["dropped"] is False
     assert result["change_abs"] == 0
     assert result["change_ratio"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# auto_flags -- open data (DVF / Georisques) rules
+# ---------------------------------------------------------------------------
+
+
+def test_flood_risk_flag_when_present():
+    listing = make_listing()
+    flags = auto_flags(listing, risks={"inondation": True})
+    codes = [f["code"] for f in flags]
+    assert "flood_risk" in codes
+    flood = next(f for f in flags if f["code"] == "flood_risk")
+    assert flood["severity"] == "warn"
+
+
+def test_flood_risk_flag_absent_when_false():
+    listing = make_listing()
+    flags = auto_flags(listing, risks={"inondation": False})
+    assert "flood_risk" not in [f["code"] for f in flags]
+
+
+def test_flood_risk_flag_absent_when_risks_none():
+    listing = make_listing()
+    flags = auto_flags(listing, risks=None)
+    assert "flood_risk" not in [f["code"] for f in flags]
+
+
+def test_clay_risk_flag_when_present():
+    listing = make_listing()
+    flags = auto_flags(listing, risks={"argiles": True})
+    codes = [f["code"] for f in flags]
+    assert "clay_risk" in codes
+    clay = next(f for f in flags if f["code"] == "clay_risk")
+    assert clay["severity"] == "info"
+
+
+def test_clay_risk_flag_absent_when_false():
+    listing = make_listing()
+    flags = auto_flags(listing, risks={"argiles": False})
+    assert "clay_risk" not in [f["code"] for f in flags]
+
+
+def test_seismic_and_radon_and_wildfire_never_flagged():
+    listing = make_listing()
+    flags = auto_flags(
+        listing,
+        risks={"seisme": True, "radon": True, "feu_foret": True, "inondation": False, "argiles": False},
+    )
+    codes = [f["code"] for f in flags]
+    assert "seisme" not in codes
+    assert "radon" not in codes
+    assert "feu_foret" not in codes
+
+
+def test_price_above_market_sales_flag_above_threshold():
+    listing = make_listing()
+    flags = auto_flags(listing, dvf_delta_ratio=0.31)
+    codes = [f["code"] for f in flags]
+    assert "price_above_market_sales" in codes
+    flag = next(f for f in flags if f["code"] == "price_above_market_sales")
+    assert flag["severity"] == "warn"
+
+
+def test_price_above_market_sales_flag_not_at_exactly_threshold():
+    listing = make_listing()
+    flags = auto_flags(listing, dvf_delta_ratio=0.30)
+    assert "price_above_market_sales" not in [f["code"] for f in flags]
+
+
+def test_price_near_market_sales_flag_at_zero():
+    listing = make_listing()
+    flags = auto_flags(listing, dvf_delta_ratio=0.0)
+    codes = [f["code"] for f in flags]
+    assert "price_near_market_sales" in codes
+    flag = next(f for f in flags if f["code"] == "price_near_market_sales")
+    assert flag["severity"] == "info"
+
+
+def test_price_near_market_sales_flag_below_zero():
+    listing = make_listing()
+    flags = auto_flags(listing, dvf_delta_ratio=-0.1)
+    assert "price_near_market_sales" in [f["code"] for f in flags]
+
+
+def test_price_near_market_sales_flag_absent_in_normal_band():
+    listing = make_listing()
+    flags = auto_flags(listing, dvf_delta_ratio=0.15)
+    codes = [f["code"] for f in flags]
+    assert "price_near_market_sales" not in codes
+    assert "price_above_market_sales" not in codes
+
+
+def test_dvf_delta_ratio_none_flags_nothing():
+    listing = make_listing()
+    flags = auto_flags(listing, dvf_delta_ratio=None)
+    codes = [f["code"] for f in flags]
+    assert "price_near_market_sales" not in codes
+    assert "price_above_market_sales" not in codes
+
+
+def test_warn_flags_ordered_before_info_flags_with_open_data_rules():
+    listing = make_listing(energy_rating="G")
+    flags = auto_flags(
+        listing,
+        risks={"inondation": True, "argiles": True},
+        dvf_delta_ratio=0.5,
+    )
+    severities = [f["severity"] for f in flags]
+    # All warn entries must precede all info entries.
+    first_info_index = severities.index("info") if "info" in severities else len(severities)
+    assert all(s == "warn" for s in severities[:first_info_index])
+    assert all(s == "info" for s in severities[first_info_index:])

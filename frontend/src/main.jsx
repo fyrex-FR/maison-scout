@@ -27,6 +27,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  ShieldAlert,
   Sparkle,
   Sparkles,
   Target,
@@ -59,11 +60,14 @@ function pricePerM2(listing) {
   return `${formatPrice(Math.round(listing.price_eur / listing.living_area_m2))} / m²`;
 }
 
+function formatPricePerM2Value(value) {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(value))} €/m²`;
+}
+
 function formatPricePerM2(listing) {
   if (!listing || !listing.price_eur || !listing.living_area_m2) return null;
-  const value = Math.round(listing.price_eur / listing.living_area_m2);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value)} €/m²`;
+  return formatPricePerM2Value(listing.price_eur / listing.living_area_m2);
 }
 
 function formatSignedAmount(value) {
@@ -90,6 +94,38 @@ function daysOnMarketLabel(listing) {
   const days = listing.days_on_market;
   const unit = days === 1 ? "jour" : "jours";
   return listing.off_market ? `Retirée après ${days} ${unit}` : `Sur le marché depuis ${days} ${unit}`;
+}
+
+function formatSignedPercent(ratio) {
+  if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return null;
+  const percent = Math.round(ratio * 1000) / 10;
+  const formatted = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1, signDisplay: "always" }).format(percent);
+  return `${formatted}%`;
+}
+
+function dvfDeltaTone(ratio) {
+  if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return "neutral";
+  if (ratio > 0.3) return "bad";
+  if (ratio <= 0) return "good";
+  return "neutral";
+}
+
+const RISK_LABELS = {
+  inondation: "Inondation",
+  argiles: "Argiles",
+  feu_foret: "Feu de forêt",
+  seisme: "Séisme",
+  radon: "Radon",
+  risque_cotier: "Recul du trait de côte",
+  mouvement_terrain: "Mouvement de terrain",
+  pollution_sols: "Pollution des sols",
+};
+
+function presentRisks(risks) {
+  if (!risks || typeof risks !== "object") return [];
+  return Object.entries(RISK_LABELS)
+    .filter(([code]) => Boolean(risks[code]))
+    .map(([code, label]) => ({ code, label }));
 }
 
 function scoreTier(score) {
@@ -1241,6 +1277,49 @@ function App() {
                 </ul>
               </div>
             )}
+
+            <div className="market-risks-block">
+              <h3>
+                <ShieldAlert size={14} />
+                Marché &amp; risques
+              </h3>
+              {activeListing.dvf_median_price_per_m2 ? (
+                <div className="market-dvf">
+                  <p className="market-dvf-line">
+                    Ventes réelles : ~{formatPricePerM2Value(activeListing.dvf_median_price_per_m2)}
+                    {activeListing.dvf_period ? ` (médiane ${activeListing.dvf_period})` : ""}
+                  </p>
+                  {formatPricePerM2(activeListing) && (
+                    <p className={`market-dvf-line market-dvf-delta is-${dvfDeltaTone(activeListing.dvf_delta_ratio)}`}>
+                      Ce bien : {formatPricePerM2(activeListing)}
+                      {formatSignedPercent(activeListing.dvf_delta_ratio) && (
+                        <span className="market-dvf-delta-value">
+                          ({formatSignedPercent(activeListing.dvf_delta_ratio)} vs ventes réelles)
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="market-dvf-line market-dvf-line-muted">Ventes réelles non disponibles pour cette ville</p>
+              )}
+
+              {activeListing.risks ? (
+                presentRisks(activeListing.risks).length > 0 ? (
+                  <ul className="risk-chip-list">
+                    {presentRisks(activeListing.risks).map((risk) => (
+                      <li className="risk-chip" key={risk.code}>
+                        {risk.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="market-dvf-line market-dvf-line-muted">Aucun risque détecté (Géorisques)</p>
+                )
+              ) : (
+                <p className="market-dvf-line market-dvf-line-muted">Risques non vérifiés (pas de coordonnées)</p>
+              )}
+            </div>
 
             {activeListing.ai_summary && (
               <div className="ai-summary">

@@ -7,7 +7,8 @@ scripts, ...).
 
 Public API
 ----------
-- ``auto_flags(listing, *, city_median_price_per_m2=None, days_on_market=None) -> list[dict]``
+- ``auto_flags(listing, *, city_median_price_per_m2=None, days_on_market=None,
+  dvf_delta_ratio=None, risks=None) -> list[dict]``
 - ``price_insight(prices_chronological, current_price) -> dict``
 
 See each function's docstring for the exact contract.
@@ -34,6 +35,8 @@ def auto_flags(
     *,
     city_median_price_per_m2: float | None = None,
     days_on_market: int | None = None,
+    dvf_delta_ratio: float | None = None,
+    risks: dict | None = None,
 ) -> list[dict]:
     """Compute deterministic data-quality / pricing signals for a listing.
 
@@ -51,6 +54,20 @@ def auto_flags(
     sense). At 60+ days it surfaces an info-level "long_on_market" flag: a
     long time on the market is a soft signal that there may be room to
     negotiate.
+
+    ``dvf_delta_ratio``, when provided, is ``(listing price/m2 / city DVF
+    median price/m2) - 1`` -- how far the asking price sits above/below real
+    recorded sales (see app.enrichment.dvf). Above +30% -> warn
+    "price_above_market_sales"; at or below 0% (asking price/m2 no higher
+    than real sales) -> info "price_near_market_sales". The 0..30% band is
+    deliberately silent (normal asking-price premium, not worth flagging).
+
+    ``risks``, when provided, is the compact Georisques summary dict (see
+    app.enrichment.georisques.summarize_risks). Only flood
+    ("flood_risk", warn) and clay shrink-swell ("clay_risk", info) are
+    surfaced here -- earthquake/radon/wildfire are deliberately NOT flagged
+    since they affect most of the Var department and would just be noise;
+    they remain visible on the detail page only.
 
     Returns a list of ``{"code": str, "label": str, "severity": "warn"|"info"}``
     dicts. "warn" entries are always ordered before "info" entries; the
@@ -140,6 +157,42 @@ def auto_flags(
             {
                 "code": "long_on_market",
                 "label": "Sur le marché depuis plus de 2 mois",
+                "severity": "info",
+            }
+        )
+
+    if risks is not None and risks.get("inondation"):
+        warn_flags.append(
+            {
+                "code": "flood_risk",
+                "label": "Zone à risque inondation (Géorisques)",
+                "severity": "warn",
+            }
+        )
+
+    if dvf_delta_ratio is not None and dvf_delta_ratio > 0.30:
+        warn_flags.append(
+            {
+                "code": "price_above_market_sales",
+                "label": "Prix bien au-dessus des ventes réelles (DVF)",
+                "severity": "warn",
+            }
+        )
+
+    if risks is not None and risks.get("argiles"):
+        info_flags.append(
+            {
+                "code": "clay_risk",
+                "label": "Retrait-gonflement des argiles (Géorisques)",
+                "severity": "info",
+            }
+        )
+
+    if dvf_delta_ratio is not None and dvf_delta_ratio <= 0.0:
+        info_flags.append(
+            {
+                "code": "price_near_market_sales",
+                "label": "Prix au niveau des ventes réelles (DVF)",
                 "severity": "info",
             }
         )
