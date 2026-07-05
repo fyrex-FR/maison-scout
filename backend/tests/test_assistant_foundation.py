@@ -227,3 +227,130 @@ def test_listing_endpoint_applies_standard_search_profile_criteria():
 
     assert response.status_code == 200
     assert [listing["id"] for listing in response.json()] == [matching_id]
+
+
+def test_listing_matches_profile_treats_missing_data_as_non_exclusionary():
+    """A crawler that fails to extract a field must not hide the listing.
+
+    listing_matches_profile() should only exclude a listing when a criterion
+    is both set on the profile AND known (not None) to violate it. Missing
+    data (None) must never cause exclusion -- we'd rather show a possibly
+    matching listing than hide a good one because of an extraction gap.
+    """
+    from app.main import listing_matches_profile
+
+    profile = SearchProfile(
+        user_id=1,
+        name="Test",
+        city="Frejus",
+        max_price_eur=800000,
+        min_living_area_m2=120,
+        min_land_area_m2=500,
+        min_bedrooms=4,
+    )
+
+    # Every field missing (extraction failed entirely): must still match.
+    blank_listing = Listing(title="Sans donnees", city="Frejus", status="new")
+    assert listing_matches_profile(blank_listing, profile) is True
+
+    # Bedrooms not extracted, everything else fine: must still match.
+    no_bedrooms = Listing(
+        title="Sans chambres extraites",
+        city="Frejus",
+        status="new",
+        price_eur=500000,
+        living_area_m2=150,
+        land_area_m2=800,
+        bedrooms=None,
+    )
+    assert listing_matches_profile(no_bedrooms, profile) is True
+
+    # Land area not extracted: must still match.
+    no_land_area = Listing(
+        title="Sans terrain extrait",
+        city="Frejus",
+        status="new",
+        price_eur=500000,
+        living_area_m2=150,
+        land_area_m2=None,
+        bedrooms=4,
+    )
+    assert listing_matches_profile(no_land_area, profile) is True
+
+    # Living area not extracted: must still match.
+    no_living_area = Listing(
+        title="Sans surface extraite",
+        city="Frejus",
+        status="new",
+        price_eur=500000,
+        living_area_m2=None,
+        land_area_m2=800,
+        bedrooms=4,
+    )
+    assert listing_matches_profile(no_living_area, profile) is True
+
+    # Price not extracted: must still match.
+    no_price = Listing(
+        title="Sans prix extrait",
+        city="Frejus",
+        status="new",
+        price_eur=None,
+        living_area_m2=150,
+        land_area_m2=800,
+        bedrooms=4,
+    )
+    assert listing_matches_profile(no_price, profile) is True
+
+    # A criterion that is present AND actually violated must still exclude.
+    truly_too_expensive = Listing(
+        title="Trop cher, prix connu",
+        city="Frejus",
+        status="new",
+        price_eur=900000,
+        living_area_m2=150,
+        land_area_m2=800,
+        bedrooms=4,
+    )
+    assert listing_matches_profile(truly_too_expensive, profile) is False
+
+    truly_not_enough_bedrooms = Listing(
+        title="Pas assez de chambres, connu",
+        city="Frejus",
+        status="new",
+        price_eur=500000,
+        living_area_m2=150,
+        land_area_m2=800,
+        bedrooms=2,
+    )
+    assert listing_matches_profile(truly_not_enough_bedrooms, profile) is False
+
+
+def test_listing_endpoint_keeps_listing_with_missing_bedrooms_when_min_bedrooms_set():
+    """End-to-end regression for the missing-data-must-not-exclude fix.
+
+    Before the fix, a listing whose bedrooms count was never extracted by the
+    crawler would silently disappear from /api/listings as soon as the user's
+    search profile set a min_bedrooms criterion, even though the house could
+    well be a great match.
+    """
+    client, SessionLocal = _client()
+    with SessionLocal() as db:
+        user = _user(db)
+        db.add(
+            SearchProfile(
+                user_id=user.id,
+                name="Frejus filtre",
+                city="Frejus",
+                min_bedrooms=4,
+            )
+        )
+        missing_bedrooms = _listing(db, "ga-missing-bedrooms")
+        missing_bedrooms.bedrooms = None
+        db.commit()
+        missing_id = missing_bedrooms.id
+        token = create_token(user)
+
+    response = client.get("/api/listings", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert missing_id in [listing["id"] for listing in response.json()]

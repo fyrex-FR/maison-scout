@@ -34,6 +34,13 @@ class ListingOut(BaseModel):
     score_breakdown: list[ScoreFactor] | None = None
     sources: list[ListingSourceOut]
     photos: list[ListingPhotoOut]
+    ai_summary: str | None = None
+    red_flags: list = Field(default_factory=list)
+    match_score: int | None = None
+    match_reasons: list = Field(default_factory=list)
+    match_missing: list = Field(default_factory=list)
+    match_dealbreakers: list = Field(default_factory=list)
+    active_profile_name: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -229,3 +236,9 @@ class ListingMatchScoreWrite(BaseModel):
     dealbreakers_json: list = Field(default_factory=list)
     model: str | None = None
     source_analysis_id: int | None = None
+
+
+class PendingMatchPairOut(BaseModel):
+    listing_id: int
+    natural_search_profile_id: int
+    source_analysis_id: int

@@ -2,7 +2,7 @@ from datetime import datetime
 import hashlib
 import json
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -42,6 +42,7 @@ from app.schemas import (
     NaturalSearchProfileOut,
     NaturalSearchProfileParseUpdate,
     NaturalSearchProfileUpdate,
+    PendingMatchPairOut,
     ScoreFactor,
     SemanticDedupCandidateOut,
     SemanticDedupDecisionOut,
@@ -69,7 +70,12 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health(response: Response, db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        db.execute(select(1))
+    except Exception:
+        response.status_code = 503
+        return {"status": "degraded"}
     return {"status": "ok"}
 
 
@@ -145,6 +151,11 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
             )
         ).all()
     } if listing_ids else {}
+
+    active_profile = active_natural_search_profile(db, user)
+    ai_analyses = ai_analyses_by_listing_id(db, listing_ids)
+    match_scores = match_scores_by_listing_id(db, listing_ids, active_profile)
+
     for listing in listings:
         state = states.get(listing.id)
         listing.status = state.status if state else "new"
@@ -152,7 +163,52 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
         score, breakdown = score_for_user(listing, profiles)
         listing.score = score
         listing.score_breakdown = breakdown
+
+        analysis = ai_analyses.get(listing.id)
+        listing.ai_summary = analysis.summary if analysis else None
+        listing.red_flags = analysis.red_flags_json if analysis else []
+
+        match = match_scores.get(listing.id)
+        listing.match_score = match.score if match else None
+        listing.match_reasons = match.matched_reasons_json if match else []
+        listing.match_missing = match.missing_or_uncertain_json if match else []
+        listing.match_dealbreakers = match.dealbreakers_json if match else []
+        listing.active_profile_name = active_profile.name if active_profile else None
     return listings
+
+
+def active_natural_search_profile(db: Session, user: User) -> NaturalSearchProfile | None:
+    """The user's single active natural-search profile, if any.
+
+    Multiple active profiles are possible in principle; we pick the most
+    recently updated one as "the" active profile for match display purposes.
+    """
+    stmt = (
+        select(NaturalSearchProfile)
+        .where(NaturalSearchProfile.user_id == user.id, NaturalSearchProfile.is_active == True)  # noqa: E712
+        .order_by(NaturalSearchProfile.updated_at.desc())
+        .limit(1)
+    )
+    return db.scalar(stmt)
+
+
+def ai_analyses_by_listing_id(db: Session, listing_ids: list[int]) -> dict[int, ListingAIAnalysis]:
+    if not listing_ids:
+        return {}
+    stmt = select(ListingAIAnalysis).where(ListingAIAnalysis.listing_id.in_(listing_ids))
+    return {analysis.listing_id: analysis for analysis in db.scalars(stmt).all()}
+
+
+def match_scores_by_listing_id(
+    db: Session, listing_ids: list[int], active_profile: NaturalSearchProfile | None
+) -> dict[int, ListingMatchScore]:
+    if not listing_ids or active_profile is None:
+        return {}
+    stmt = select(ListingMatchScore).where(
+        ListingMatchScore.listing_id.in_(listing_ids),
+        ListingMatchScore.natural_search_profile_id == active_profile.id,
+    )
+    return {score.listing_id: score for score in db.scalars(stmt).all()}
 
 
 def profiles_for_user(db: Session, user: User) -> list[SearchProfile]:
@@ -169,17 +225,36 @@ def listing_matches_any_profile(listing: Listing, profiles: list[SearchProfile])
 
 
 def listing_matches_profile(listing: Listing, profile: SearchProfile) -> bool:
-    if profile.max_price_eur is not None and (listing.price_eur is None or listing.price_eur > profile.max_price_eur):
-        return False
-    if profile.min_living_area_m2 is not None and (
-        listing.living_area_m2 is None or listing.living_area_m2 < profile.min_living_area_m2
+    """A listing is excluded only when a criterion is present AND violated.
+
+    Crawlers sometimes fail to extract fields (bedrooms, land area, ...). A
+    missing value must never exclude a listing -- we'd rather show a possibly
+    matching listing than hide a good one because of an extraction gap. Only
+    exclude when we positively know the listing violates the criterion.
+    """
+    if (
+        profile.max_price_eur is not None
+        and listing.price_eur is not None
+        and listing.price_eur > profile.max_price_eur
     ):
         return False
-    if profile.min_land_area_m2 is not None and (
-        listing.land_area_m2 is None or listing.land_area_m2 < profile.min_land_area_m2
+    if (
+        profile.min_living_area_m2 is not None
+        and listing.living_area_m2 is not None
+        and listing.living_area_m2 < profile.min_living_area_m2
     ):
         return False
-    if profile.min_bedrooms is not None and (listing.bedrooms is None or listing.bedrooms < profile.min_bedrooms):
+    if (
+        profile.min_land_area_m2 is not None
+        and listing.land_area_m2 is not None
+        and listing.land_area_m2 < profile.min_land_area_m2
+    ):
+        return False
+    if (
+        profile.min_bedrooms is not None
+        and listing.bedrooms is not None
+        and listing.bedrooms < profile.min_bedrooms
+    ):
         return False
     return True
 
@@ -602,6 +677,111 @@ def list_pending_ai_analysis(
         if len(candidates) >= limit:
             break
     return candidates
+
+
+@app.get("/api/ai/natural-search-profiles/pending-parse", response_model=list[NaturalSearchProfileOut])
+def list_pending_parse_natural_search_profiles(
+    limit: int = 50,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[NaturalSearchProfile]:
+    require_crawl_secret(x_crawl_secret)
+    limit = max(1, min(limit, 200))
+    stmt = (
+        select(NaturalSearchProfile)
+        .where(
+            NaturalSearchProfile.is_active == True,  # noqa: E712
+            NaturalSearchProfile.parsed_at.is_(None),
+        )
+        .order_by(NaturalSearchProfile.created_at)
+        .limit(limit)
+    )
+    return list(db.scalars(stmt).all())
+
+
+@app.get("/api/ai/pending-match-scores", response_model=list[PendingMatchPairOut])
+def list_pending_match_scores(
+    limit: int = 100,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    require_crawl_secret(x_crawl_secret)
+    limit = max(1, min(limit, 500))
+
+    active_profiles = list(
+        db.scalars(
+            select(NaturalSearchProfile)
+            .where(
+                NaturalSearchProfile.is_active == True,  # noqa: E712
+                NaturalSearchProfile.parsed_at.is_not(None),
+            )
+            .order_by(NaturalSearchProfile.id)
+        ).all()
+    )
+    if not active_profiles:
+        return []
+
+    # Preload every listing that has an AI analysis (analysis is per-listing,
+    # unique), keyed by listing_id -- avoids re-querying analyses per profile.
+    analyses_by_listing_id = {
+        analysis.listing_id: analysis
+        for analysis in db.scalars(select(ListingAIAnalysis)).all()
+    }
+    analyzed_listing_ids = list(analyses_by_listing_id.keys())
+    if not analyzed_listing_ids:
+        return []
+    listings = list(
+        db.scalars(
+            select(Listing).where(Listing.id.in_(analyzed_listing_ids)).order_by(Listing.id)
+        ).all()
+    )
+
+    # Preload existing match scores for these listings and the active profiles
+    # in one query, keyed by (listing_id, profile_id) -- avoids N+1 lookups.
+    active_profile_ids = [profile.id for profile in active_profiles]
+    existing_scores = {
+        (score.listing_id, score.natural_search_profile_id): score
+        for score in db.scalars(
+            select(ListingMatchScore).where(
+                ListingMatchScore.listing_id.in_(analyzed_listing_ids),
+                ListingMatchScore.natural_search_profile_id.in_(active_profile_ids),
+            )
+        ).all()
+    }
+
+    # Classic (enabled) search profiles per owning user, loaded once per user.
+    classic_profiles_by_user_id: dict[int, list[SearchProfile]] = {}
+
+    pairs: list[dict] = []
+    for profile in active_profiles:
+        classic_profiles = classic_profiles_by_user_id.get(profile.user_id)
+        if classic_profiles is None:
+            classic_profiles = list(
+                db.scalars(
+                    select(SearchProfile).where(
+                        SearchProfile.user_id == profile.user_id,
+                        SearchProfile.enabled == True,  # noqa: E712
+                    )
+                ).all()
+            )
+            classic_profiles_by_user_id[profile.user_id] = classic_profiles
+        for listing in listings:
+            if not listing_matches_any_profile(listing, classic_profiles):
+                continue
+            analysis = analyses_by_listing_id[listing.id]
+            existing = existing_scores.get((listing.id, profile.id))
+            if existing is not None and existing.source_analysis_id == analysis.id:
+                continue  # up-to-date score already exists
+            pairs.append(
+                {
+                    "listing_id": listing.id,
+                    "natural_search_profile_id": profile.id,
+                    "source_analysis_id": analysis.id,
+                }
+            )
+            if len(pairs) >= limit:
+                return pairs
+    return pairs
 
 
 @app.put("/api/ai/listings/{listing_id}/analysis", response_model=ListingAIAnalysisOut)
