@@ -462,6 +462,105 @@ h1 {
 }
 
 /* ==========================================================================
+   Search config (collapsible wrapper around cities + natural searches)
+   ========================================================================== */
+
+.search-config {
+  margin-bottom: var(--space-5);
+}
+
+.search-config-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-xs);
+  text-align: left;
+  transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+}
+
+.search-config-summary:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.search-config-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-brand-dark);
+  font-weight: 800;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.search-config-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.search-config-city {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-brand-light);
+  color: var(--color-brand-dark);
+  border: 1px solid #c9d8d1;
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.search-config-natural {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-ink-faint);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.search-config-natural.has-active {
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  border: 1px solid rgba(201, 138, 60, 0.35);
+}
+
+.search-config-hint {
+  color: var(--color-ink-faint);
+  font-size: 13px;
+}
+
+.search-config-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-ink-soft);
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.search-config > .search-config-summary + .profiles,
+.search-config .profiles {
+  margin-top: var(--space-4);
+}
+
+/* ==========================================================================
    Profiles / followed cities
    ========================================================================== */
 
@@ -1200,25 +1299,10 @@ h1 {
   border-color: var(--color-border);
 }
 
-.source-flag {
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  background: rgba(28, 33, 31, 0.62);
-  color: #fff;
-  border-radius: var(--radius-pill);
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(4px);
-}
-
 .new-badge {
   position: absolute;
   left: 10px;
-  top: 44px;
+  top: 10px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1249,7 +1333,7 @@ h1 {
 .off-market-badge {
   position: absolute;
   left: 10px;
-  top: 78px;
+  top: 10px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1697,6 +1781,16 @@ h2 {
   margin-bottom: var(--space-3);
 }
 
+/* .score-badge est absolument positionné pour les vignettes ; dans le bloc
+   correspondance il doit rester dans le flux (sinon il flotte en haut de la
+   modale, par-dessus le bouton de fermeture). */
+.ai-match-score .score-badge {
+  position: static;
+  display: inline-flex;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
 .ai-match-group {
   margin-bottom: var(--space-3);
 }
@@ -1958,13 +2052,18 @@ h2 {
   padding: var(--space-4);
 }
 
-.score-breakdown h3 {
+.score-breakdown summary {
   font-size: 13px;
-  margin: 0 0 var(--space-3);
   color: var(--color-ink-soft);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.score-breakdown[open] summary {
+  margin-bottom: var(--space-3);
 }
 
 .score-breakdown ul {
@@ -2069,6 +2168,58 @@ h2 {
   background: var(--color-danger-bg);
   color: var(--color-danger);
   border-color: rgba(176, 64, 47, 0.3);
+}
+
+/* Actions principales de la fiche, remontées sous le prix : mêmes boutons que
+   .modal-actions, avec un état actif persistant reflétant le statut courant. */
+.modal-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+}
+
+.modal-quick-actions button {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 14px;
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease),
+    border-color var(--duration) var(--ease);
+}
+
+.modal-quick-actions .action-favorite:hover,
+.modal-quick-actions .action-favorite.is-active {
+  background: var(--color-good-bg);
+  color: var(--color-good);
+  border-color: rgba(31, 122, 77, 0.3);
+}
+
+.modal-quick-actions .action-call:hover,
+.modal-quick-actions .action-call.is-active {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border-color: rgba(201, 138, 60, 0.35);
+}
+
+.modal-quick-actions .action-reject:hover,
+.modal-quick-actions .action-reject.is-active {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-color: rgba(176, 64, 47, 0.3);
+}
+
+.modal-quick-actions .action-compare:hover,
+.modal-quick-actions .action-compare.is-active {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  border-color: rgba(47, 102, 144, 0.3);
 }
 
 .modal.small {
@@ -2462,6 +2613,21 @@ h2 {
 @media (max-width: 680px) {
   main {
     padding: var(--space-5) var(--space-4) var(--space-7);
+  }
+
+  .search-config-summary {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+
+  /* Sur mobile : titre + bouton sur la première ligne, chips en dessous. */
+  .search-config-chips {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .search-config-toggle {
+    margin-left: auto;
   }
 
   .topbar {

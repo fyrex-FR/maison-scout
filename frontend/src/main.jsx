@@ -6,6 +6,8 @@ import {
   BedDouble,
   Building2,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Flag,
   Heart,
@@ -248,6 +250,11 @@ function App() {
   const [priceHistory, setPriceHistory] = useState([]);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
   const [viewMode, setViewMode] = useState("list");
+  // La zone "Ma recherche" (villes + recherches IA) est de la configuration
+  // ponctuelle : repliée par défaut pour garder les annonces visibles d'emblée.
+  const [searchConfigOpen, setSearchConfigOpen] = useState(
+    () => localStorage.getItem("maisonScoutSearchConfigOpen") === "true"
+  );
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminInviteCodes, setAdminInviteCodes] = useState([]);
@@ -429,6 +436,13 @@ function App() {
 
   const comparisonIds = useMemo(() => new Set(comparison.map((listing) => listing.id)), [comparison]);
   const newListingsCount = useMemo(() => listings.filter((listing) => listing.is_new === true).length, [listings]);
+  const activeNaturalCount = useMemo(
+    () => naturalProfiles.filter((profile) => profile.is_active).length,
+    [naturalProfiles]
+  );
+  // Sans ville configurée il n'y a rien à afficher : on force l'ouverture pour
+  // que l'onboarding reste évident.
+  const searchConfigExpanded = searchConfigOpen || (!initialLoading && profiles.length === 0);
 
   async function addToComparison(id) {
     setComparisonError("");
@@ -557,6 +571,13 @@ function App() {
     setNoteDraft(listing.note || "");
   }
 
+  function toggleSearchConfig() {
+    setSearchConfigOpen((open) => {
+      localStorage.setItem("maisonScoutSearchConfigOpen", String(!open));
+      return !open;
+    });
+  }
+
   useEffect(() => {
     loadListings();
   }, [token]);
@@ -566,6 +587,21 @@ function App() {
     loadListings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [standardFilters.include_off_market]);
+
+  useEffect(() => {
+    // Échap ferme la modale visuellement au premier plan (ordre inverse du
+    // z-order de rendu : admin/comparatif par-dessus la fiche annonce).
+    function onKeyDown(event) {
+      if (event.key !== "Escape") return;
+      if (showAdmin) setShowAdmin(false);
+      else if (showComparison) setShowComparison(false);
+      else if (selectedNaturalProfile) setSelectedNaturalProfile(null);
+      else if (selectedProfile) setSelectedProfile(null);
+      else if (selectedListing) setSelectedListing(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showAdmin, showComparison, selectedNaturalProfile, selectedProfile, selectedListing]);
 
   useEffect(() => {
     if (!selectedListing || !token) {
@@ -809,6 +845,40 @@ function App() {
       </header>
       {comparisonError && <p className="error compare-error">{comparisonError}</p>}
 
+      <section className="search-config">
+        <button
+          type="button"
+          className="search-config-summary"
+          onClick={toggleSearchConfig}
+          aria-expanded={searchConfigExpanded}
+        >
+          <span className="search-config-title">
+            <Search size={15} />
+            Ma recherche
+          </span>
+          <span className="search-config-chips">
+            {profiles.map((profile) => (
+              <span className="search-config-city" key={profile.id}>
+                <MapPin size={12} />
+                {profile.city}
+              </span>
+            ))}
+            {profiles.length === 0 && <span className="search-config-hint">Aucune ville suivie</span>}
+            <span className={`search-config-natural${activeNaturalCount > 0 ? " has-active" : ""}`}>
+              <Sparkles size={12} />
+              {activeNaturalCount > 0
+                ? `${activeNaturalCount} recherche${activeNaturalCount > 1 ? "s" : ""} IA active${activeNaturalCount > 1 ? "s" : ""}`
+                : "Pas de recherche IA"}
+            </span>
+          </span>
+          <span className="search-config-toggle">
+            {searchConfigExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            {searchConfigExpanded ? "Replier" : "Modifier"}
+          </span>
+        </button>
+
+        {searchConfigExpanded && (
+          <>
       <section className="profiles">
         <div className="profile-list">
           {profiles.map((profile) => (
@@ -889,6 +959,9 @@ function App() {
             Ajouter cette recherche
           </button>
         </form>
+      </section>
+          </>
+        )}
       </section>
 
       <section className="filters-row">
@@ -1054,33 +1127,26 @@ function App() {
             <article className={`card${listing.off_market ? " is-off-market" : ""}`} key={listing.id}>
               <div className="photo" onClick={() => openListing(listing)}>
                 {listing.photos[0] ? <img src={listing.photos[0].url} alt={listing.title} /> : <Home size={44} />}
-                {listing.sources[0]?.source && <span className="source-flag">{listing.sources[0].source}</span>}
-                {listing.off_market && (
+                {/* Un seul badge d'état à gauche : "Retirée" prime sur "Nouveau".
+                    La source et la baisse de prix vivent dans le contenu de la carte. */}
+                {listing.off_market ? (
                   <span className="off-market-badge" title="Annonce retirée du marché">
                     <Archive size={12} />
                     Retirée
                   </span>
-                )}
-                {listing.is_new === true && (
-                  <span className="new-badge" title="Nouvelle annonce">
-                    <Sparkle size={12} />
-                    Nouveau
-                  </span>
+                ) : (
+                  listing.is_new === true && (
+                    <span className="new-badge" title="Nouvelle annonce">
+                      <Sparkle size={12} />
+                      Nouveau
+                    </span>
+                  )
                 )}
                 <span className={`score-badge ${scoreTier(listing.score)}`}>{listing.score ?? "-"} / 100</span>
                 {listing.match_score !== null && listing.match_score !== undefined && (
                   <span className="match-badge" title="Pertinence par rapport à ta recherche IA">
                     <Target size={12} />
                     {listing.match_score}
-                  </span>
-                )}
-                {listing.price_dropped && (
-                  <span className="price-drop-badge" title="Le prix de cette annonce a baissé">
-                    <TrendingDown size={12} />
-                    Baisse de prix
-                    {formatSignedAmount(listing.price_change_abs) && listing.price_change_abs < 0 && (
-                      <span className="price-drop-amount">{formatSignedAmount(listing.price_change_abs)}</span>
-                    )}
                   </span>
                 )}
               </div>
@@ -1093,6 +1159,14 @@ function App() {
                 <p className="price">
                   {formatPrice(listing.price_eur)}
                   {formatPricePerM2(listing) && <span className="price-per-m2">{formatPricePerM2(listing)}</span>}
+                  {listing.price_dropped && (
+                    <span className="price-drop-badge price-drop-badge-inline" title="Le prix de cette annonce a baissé">
+                      <TrendingDown size={12} />
+                      {formatSignedAmount(listing.price_change_abs) && listing.price_change_abs < 0
+                        ? formatSignedAmount(listing.price_change_abs)
+                        : "Baisse"}
+                    </span>
+                  )}
                 </p>
                 {Array.isArray(listing.auto_flags) && listing.auto_flags.length > 0 && (
                   <div className="auto-flags-row">
@@ -1174,7 +1248,7 @@ function App() {
       {activeListing && (
         <div className="modal-backdrop" onClick={() => setSelectedListing(null)}>
           <section className="modal" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" title="Fermer" onClick={() => setSelectedListing(null)}>
+            <button className="modal-close" title="Fermer" aria-label="Fermer" onClick={() => setSelectedListing(null)}>
               <X size={18} />
             </button>
             <div className="detail-photos">
@@ -1240,6 +1314,38 @@ function App() {
                 </span>
               )}
             </p>
+            {/* Actions principales en tête de fiche : décider ne doit pas
+                exiger de scroller toute l'analyse. */}
+            <div className="modal-quick-actions">
+              <button
+                className={`action-favorite${activeListing.status === "favorite" ? " is-active" : ""}`}
+                onClick={() => setListingStatus(activeListing.id, "favorite", noteDraft)}
+              >
+                <Heart size={16} />
+                Shortlist
+              </button>
+              <button
+                className={`action-call${activeListing.status === "call" ? " is-active" : ""}`}
+                onClick={() => setListingStatus(activeListing.id, "call", noteDraft)}
+              >
+                <Phone size={16} />
+                A appeler
+              </button>
+              <button
+                className={`action-reject${activeListing.status === "rejected" ? " is-active" : ""}`}
+                onClick={() => setListingStatus(activeListing.id, "rejected", noteDraft)}
+              >
+                <X size={16} />
+                Rejeter
+              </button>
+              <button
+                className={`action-compare${comparisonIds.has(activeListing.id) ? " is-active" : ""}`}
+                onClick={() => toggleComparison(activeListing.id)}
+              >
+                <Scale size={16} />
+                {comparisonIds.has(activeListing.id) ? "Comparé" : "Comparer"}
+              </button>
+            </div>
             <p className="modal-description">{activeListing.description}</p>
 
             {!priceHistoryLoading && priceHistory.length >= 2 && (
@@ -1393,8 +1499,8 @@ function App() {
             )}
 
             {activeListing.score_breakdown && activeListing.score_breakdown.length > 0 && (
-              <div className="score-breakdown">
-                <h3>Détail du score</h3>
+              <details className="score-breakdown">
+                <summary>Détail du score ({activeListing.score ?? "-"} / 100)</summary>
                 <ul>
                   {activeListing.score_breakdown.map((factor, index) => (
                     <li key={`${factor.label}-${index}`} className={factor.delta < 0 ? "malus" : "bonus"}>
@@ -1405,7 +1511,7 @@ function App() {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </details>
             )}
             <div className="note-field">
               <label className="field-label" htmlFor="listing-note">
@@ -1423,18 +1529,6 @@ function App() {
                 <Save size={18} />
                 Enregistrer la note
               </button>
-              <button className="action-favorite" onClick={() => setListingStatus(activeListing.id, "favorite", noteDraft)}>
-                <Heart size={18} />
-                Shortlist
-              </button>
-              <button className="action-call" onClick={() => setListingStatus(activeListing.id, "call", noteDraft)}>
-                <Phone size={18} />
-                Appeler
-              </button>
-              <button className="action-reject" onClick={() => setListingStatus(activeListing.id, "rejected", noteDraft)}>
-                <X size={18} />
-                Rejeter
-              </button>
             </div>
           </section>
         </div>
@@ -1443,7 +1537,7 @@ function App() {
       {selectedProfile && (
         <div className="modal-backdrop" onClick={() => setSelectedProfile(null)}>
           <section className="modal small" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" title="Fermer" onClick={() => setSelectedProfile(null)}>
+            <button className="modal-close" title="Fermer" aria-label="Fermer" onClick={() => setSelectedProfile(null)}>
               <X size={18} />
             </button>
             <h2>
@@ -1497,7 +1591,7 @@ function App() {
       {selectedNaturalProfile && (
         <div className="modal-backdrop" onClick={() => setSelectedNaturalProfile(null)}>
           <section className="modal small" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" title="Fermer" onClick={() => setSelectedNaturalProfile(null)}>
+            <button className="modal-close" title="Fermer" aria-label="Fermer" onClick={() => setSelectedNaturalProfile(null)}>
               <X size={18} />
             </button>
             <h2>
@@ -1541,7 +1635,7 @@ function App() {
       {showComparison && (
         <div className="modal-backdrop" onClick={() => setShowComparison(false)}>
           <section className="modal compare-modal" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" title="Fermer" onClick={() => setShowComparison(false)}>
+            <button className="modal-close" title="Fermer" aria-label="Fermer" onClick={() => setShowComparison(false)}>
               <X size={18} />
             </button>
             <h2>
@@ -1659,7 +1753,7 @@ function App() {
       {showAdmin && (
         <div className="modal-backdrop" onClick={() => setShowAdmin(false)}>
           <section className="modal admin-modal" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" title="Fermer" onClick={() => setShowAdmin(false)}>
+            <button className="modal-close" title="Fermer" aria-label="Fermer" onClick={() => setShowAdmin(false)}>
               <X size={18} />
             </button>
             <h2>
