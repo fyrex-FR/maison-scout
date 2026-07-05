@@ -40,6 +40,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    listings_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     search_profiles: Mapped[list["SearchProfile"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     natural_search_profiles: Mapped[list["NaturalSearchProfile"]] = relationship(

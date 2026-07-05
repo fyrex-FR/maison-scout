@@ -15,6 +15,7 @@ from app.config import settings
 from app.crawlers.bien_ici import BienIciCrawler
 from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
+from app.crawlers.pap import PapCrawler
 from app.db import get_db
 from app.ingest import run_crawler
 from app.insights import auto_flags, price_insight
@@ -143,6 +144,16 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
     return attach_user_context(db, user, listings)
 
 
+@app.post("/api/listings/mark-seen")
+def mark_listings_seen(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    user.listings_seen_at = datetime.utcnow()
+    db.commit()
+    return {"status": "ok", "listings_seen_at": user.listings_seen_at.isoformat()}
+
+
 def attach_user_context(db: Session, user: User, listings: list[Listing]) -> list[Listing]:
     """Attach per-user status/note/score onto listings not owned by the DB row itself."""
     profiles = profiles_for_user(db, user)
@@ -189,6 +200,8 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
         listing.price_dropped = insight["dropped"]
         listing.price_change_abs = insight["change_abs"]
         listing.price_observations = insight["count"]
+
+        listing.is_new = (user.listings_seen_at is None) or (listing.created_at > user.listings_seen_at)
     return listings
 
 
@@ -626,6 +639,19 @@ async def crawl_green_acres(
     require_crawl_access(authorization, x_crawl_secret)
     cities = active_search_cities(db)
     run: CrawlRun = await run_crawler(db, GreenAcresCrawler.from_cities(cities))
+    return {"status": run.status, "found_count": run.found_count}
+
+
+@app.post("/api/crawl/pap")
+# opt-in: pas encore dans /crawl/all ni le cron — à valider manuellement d'abord
+async def crawl_pap(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict[str, int | str]:
+    require_crawl_access(authorization, x_crawl_secret)
+    cities = active_search_cities(db)
+    run: CrawlRun = await run_crawler(db, PapCrawler.from_cities(cities))
     return {"status": run.status, "found_count": run.found_count}
 
 

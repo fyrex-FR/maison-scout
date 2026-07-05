@@ -47,6 +47,7 @@ class ListingOut(BaseModel):
     price_dropped: bool = False
     price_change_abs: int | None = None
     price_observations: int = 0
+    is_new: bool = False
 
     model_config = {"from_attributes": True}
 
