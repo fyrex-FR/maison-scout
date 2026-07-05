@@ -48,6 +48,8 @@ class ListingOut(BaseModel):
     price_change_abs: int | None = None
     price_observations: int = 0
     is_new: bool = False
+    latitude: float | None = None
+    longitude: float | None = None
 
     model_config = {"from_attributes": True}
 
@@ -127,6 +129,7 @@ class UserOut(BaseModel):
     id: int
     email: str
     display_name: str
+    is_admin: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -258,3 +261,32 @@ class PriceHistoryPointOut(BaseModel):
     observed_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    created_at: datetime
+    is_admin: bool
+
+    model_config = {"from_attributes": True}
+
+
+class InviteCodeOut(BaseModel):
+    id: int
+    code: str
+    active: bool
+    note: str | None
+    used_count: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class InviteCodeCreate(BaseModel):
+    note: str | None = None
+
+
+class InviteCodeUpdate(BaseModel):
+    active: bool

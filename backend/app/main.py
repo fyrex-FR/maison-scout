@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 import hashlib
 import json
+import secrets
 import statistics
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
@@ -22,6 +23,7 @@ from app.insights import auto_flags, price_insight
 from app.models import (
     ComparisonItem,
     CrawlRun,
+    InviteCode,
     Listing,
     ListingAIAnalysis,
     ListingMatchScore,
@@ -33,10 +35,14 @@ from app.models import (
     UserListingState,
 )
 from app.schemas import (
+    AdminUserOut,
     AIAnalysisCandidateOut,
     AuthRequest,
     AuthResponse,
     CrawlRunOut,
+    InviteCodeCreate,
+    InviteCodeOut,
+    InviteCodeUpdate,
     ListingAIAnalysisOut,
     ListingAIAnalysisWrite,
     ListingMatchScoreOut,
@@ -75,6 +81,27 @@ app.add_middleware(
 # avant de lancer uvicorn — plus de create_all / ALTER à la volée ici.
 
 
+def is_user_admin(user: User) -> bool:
+    """A user is admin either via the DB flag or via the ADMIN_EMAILS env,
+    so the app owner can become admin without any manual DB manipulation.
+    """
+    return bool(user.is_admin) or user.email.strip().lower() in settings.admin_email_set
+
+
+def require_admin(user: User) -> None:
+    if not is_user_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def user_to_out(user: User) -> UserOut:
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        is_admin=is_user_admin(user),
+    )
+
+
 @app.get("/health")
 def health(response: Response, db: Session = Depends(get_db)) -> dict[str, str]:
     try:
@@ -85,13 +112,29 @@ def health(response: Response, db: Session = Depends(get_db)) -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _validate_invite_code(db: Session, provided: str) -> InviteCode | None:
+    """Returns the matching active DB invite code (if any) after validating.
+
+    Invitation is required as soon as either the env invite_code_set is
+    non-empty or at least one active InviteCode row exists in the DB.
+    Raises 403 (message unchanged) if required and not satisfied.
+    """
+    env_codes = settings.invite_code_set
+    db_code = db.scalar(select(InviteCode).where(InviteCode.code == provided, InviteCode.active == True))  # noqa: E712
+    any_active_db_code = db.scalar(select(InviteCode.id).where(InviteCode.active == True)) is not None  # noqa: E712
+    invitation_required = bool(env_codes) or any_active_db_code
+    valid = (provided in env_codes) or (db_code is not None)
+    if invitation_required and not valid:
+        raise HTTPException(status_code=403, detail="Invalid invite code")
+    return db_code
+
+
 @app.post("/api/auth/register", response_model=AuthResponse)
 def register(payload: AuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
     if not settings.allow_open_registration:
         raise HTTPException(status_code=403, detail="Registration disabled")
-    invite_codes = settings.invite_code_set
-    if invite_codes and (payload.invite_code or "").strip() not in invite_codes:
-        raise HTTPException(status_code=403, detail="Invalid invite code")
+    provided = (payload.invite_code or "").strip()
+    db_code = _validate_invite_code(db, provided)
     email = payload.email.strip().lower()
     if not email or len(payload.password) < 8:
         raise HTTPException(status_code=400, detail="Email and 8+ char password required")
@@ -106,9 +149,11 @@ def register(payload: AuthRequest, db: Session = Depends(get_db)) -> AuthRespons
     db.flush()
     db.add(SearchProfile(user_id=user.id, name="Frejus / Saint-Raphael", city="Frejus"))
     db.add(SearchProfile(user_id=user.id, name="Frejus / Saint-Raphael", city="Saint-Raphael"))
+    if db_code is not None:
+        db_code.used_count += 1
     db.commit()
     db.refresh(user)
-    return AuthResponse(token=create_token(user), user=user)
+    return AuthResponse(token=create_token(user), user=user_to_out(user))
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
@@ -116,12 +161,12 @@ def login(payload: AuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
     user = db.scalar(select(User).where(User.email == payload.email.strip().lower()))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return AuthResponse(token=create_token(user), user=user)
+    return AuthResponse(token=create_token(user), user=user_to_out(user))
 
 
 @app.get("/api/me", response_model=UserOut)
-def me(user: User = Depends(get_current_user)) -> User:
-    return user
+def me(user: User = Depends(get_current_user)) -> UserOut:
+    return user_to_out(user)
 
 
 @app.get("/api/listings", response_model=list[ListingOut])
@@ -1053,3 +1098,49 @@ def require_crawl_secret(x_crawl_secret: str | None) -> None:
 def list_crawl_runs(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CrawlRun]:
     stmt = select(CrawlRun).order_by(CrawlRun.started_at.desc()).limit(20)
     return list(db.scalars(stmt).all())
+
+
+@app.get("/api/admin/users", response_model=list[AdminUserOut])
+def list_admin_users(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[User]:
+    require_admin(user)
+    stmt = select(User).order_by(User.created_at)
+    return list(db.scalars(stmt).all())
+
+
+@app.get("/api/admin/invite-codes", response_model=list[InviteCodeOut])
+def list_admin_invite_codes(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[InviteCode]:
+    require_admin(user)
+    stmt = select(InviteCode).order_by(InviteCode.created_at.desc())
+    return list(db.scalars(stmt).all())
+
+
+@app.post("/api/admin/invite-codes", response_model=InviteCodeOut)
+def create_admin_invite_code(
+    payload: InviteCodeCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InviteCode:
+    require_admin(user)
+    code = secrets.token_hex(4).upper()
+    invite_code = InviteCode(code=code, active=True, note=payload.note)
+    db.add(invite_code)
+    db.commit()
+    db.refresh(invite_code)
+    return invite_code
+
+
+@app.patch("/api/admin/invite-codes/{invite_code_id}", response_model=InviteCodeOut)
+def update_admin_invite_code(
+    invite_code_id: int,
+    payload: InviteCodeUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InviteCode:
+    require_admin(user)
+    invite_code = db.get(InviteCode, invite_code_id)
+    if invite_code is None:
+        raise HTTPException(status_code=404, detail="Invite code not found")
+    invite_code.active = payload.active
+    db.commit()
+    db.refresh(invite_code)
+    return invite_code

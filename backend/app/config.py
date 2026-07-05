@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     allow_open_registration: bool = True
     invite_codes: str = ""
     crawl_secret: str = ""
+    admin_emails: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -16,6 +17,10 @@ class Settings(BaseSettings):
     @property
     def invite_code_set(self) -> set[str]:
         return {code.strip() for code in self.invite_codes.split(",") if code.strip()}
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {email.strip().lower() for email in self.admin_emails.split(",") if email.strip()}
 
 
 settings = Settings()
