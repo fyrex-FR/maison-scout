@@ -4,8 +4,10 @@ import {
   AlertTriangle,
   BedDouble,
   Building2,
+  Flag,
   Heart,
   Home,
+  Info,
   LandPlot,
   LogOut,
   MapPin,
@@ -21,6 +23,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
+  TrendingDown,
   X,
 } from "lucide-react";
 import "./styles.css";
@@ -45,6 +48,25 @@ function pricePerM2(listing) {
   return `${formatPrice(Math.round(listing.price_eur / listing.living_area_m2))} / m²`;
 }
 
+function formatSignedAmount(value) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  const formatted = new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+    signDisplay: "always",
+  }).format(value);
+  return formatted;
+}
+
+function formatShortDate(isoString) {
+  try {
+    return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(isoString));
+  } catch {
+    return isoString;
+  }
+}
+
 function scoreTier(score) {
   if (score === null || score === undefined) return "score-mid";
   if (score >= 70) return "score-good";
@@ -58,6 +80,33 @@ function renderListItem(item) {
     return item.label || item.text || item.reason || JSON.stringify(item);
   }
   return String(item);
+}
+
+function PriceSparkline({ points }) {
+  const values = points.map((point) => point.price_eur).filter((value) => typeof value === "number" && Number.isFinite(value));
+  if (values.length < 2) return null;
+  const width = 280;
+  const height = 56;
+  const padding = 6;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const step = (width - padding * 2) / (values.length - 1);
+  const coords = values.map((value, index) => {
+    const x = padding + index * step;
+    const y = padding + (height - padding * 2) * (1 - (value - min) / range);
+    return [x, y];
+  });
+  const path = coords.map(([x, y], index) => `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const isDrop = values[values.length - 1] < values[0];
+  return (
+    <svg className="price-sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+      <path d={path} fill="none" stroke={isDrop ? "var(--color-good)" : "var(--color-ink-faint)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {coords.map(([x, y], index) => (
+        <circle key={index} cx={x} cy={y} r="2.5" fill={isDrop ? "var(--color-good)" : "var(--color-ink-faint)"} />
+      ))}
+    </svg>
+  );
 }
 
 const EMPTY_STATE_COPY = {
@@ -110,6 +159,7 @@ function App() {
     min_land_area_m2: "",
     min_bedrooms: "",
     sort: "score",
+    price_dropped_only: false,
   });
   const [selectedListing, setSelectedListing] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
@@ -118,6 +168,8 @@ function App() {
   const [comparison, setComparison] = useState([]);
   const [comparisonError, setComparisonError] = useState("");
   const [showComparison, setShowComparison] = useState(false);
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
 
   function authHeaders() {
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -329,6 +381,30 @@ function App() {
     loadListings();
   }, [token]);
 
+  useEffect(() => {
+    if (!selectedListing || !token) {
+      setPriceHistory([]);
+      return;
+    }
+    let cancelled = false;
+    setPriceHistoryLoading(true);
+    setPriceHistory([]);
+    fetch(`${API_URL}/api/listings/${selectedListing.id}/price-history`, { headers: authHeaders() })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data) => {
+        if (!cancelled) setPriceHistory(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setPriceHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPriceHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedListing?.id, token]);
+
   const filtered = useMemo(() => {
     const matchesNumber = (value, filterValue, mode) => {
       if (!filterValue) return true;
@@ -344,7 +420,8 @@ function App() {
       .filter((listing) => matchesNumber(listing.price_eur, standardFilters.max_price_eur, "max"))
       .filter((listing) => matchesNumber(listing.living_area_m2, standardFilters.min_living_area_m2, "min"))
       .filter((listing) => matchesNumber(listing.land_area_m2, standardFilters.min_land_area_m2, "min"))
-      .filter((listing) => matchesNumber(listing.bedrooms, standardFilters.min_bedrooms, "min"));
+      .filter((listing) => matchesNumber(listing.bedrooms, standardFilters.min_bedrooms, "min"))
+      .filter((listing) => !standardFilters.price_dropped_only || listing.price_dropped === true);
     return [...visible].sort((a, b) => {
       if (standardFilters.sort === "price") return (a.price_eur ?? Number.MAX_SAFE_INTEGER) - (b.price_eur ?? Number.MAX_SAFE_INTEGER);
       if (standardFilters.sort === "surface") return (b.living_area_m2 ?? 0) - (a.living_area_m2 ?? 0);
@@ -602,6 +679,15 @@ function App() {
           <option value="surface">Surface décroissante</option>
           <option value="updated">Plus récentes</option>
         </select>
+        <label className="standard-filters-checkbox">
+          <input
+            type="checkbox"
+            checked={standardFilters.price_dropped_only}
+            onChange={(event) => setStandardFilters({ ...standardFilters, price_dropped_only: event.target.checked })}
+          />
+          <TrendingDown size={14} />
+          Baisse de prix uniquement
+        </label>
         <button
           type="button"
           className="ghost compact"
@@ -612,6 +698,7 @@ function App() {
               min_land_area_m2: "",
               min_bedrooms: "",
               sort: "score",
+              price_dropped_only: false,
             })
           }
         >
@@ -662,6 +749,15 @@ function App() {
                     {listing.match_score}
                   </span>
                 )}
+                {listing.price_dropped && (
+                  <span className="price-drop-badge" title="Le prix de cette annonce a baissé">
+                    <TrendingDown size={12} />
+                    Baisse de prix
+                    {formatSignedAmount(listing.price_change_abs) && listing.price_change_abs < 0 && (
+                      <span className="price-drop-amount">{formatSignedAmount(listing.price_change_abs)}</span>
+                    )}
+                  </span>
+                )}
               </div>
               <div className="content">
                 <h2 onClick={() => openListing(listing)}>{listing.title}</h2>
@@ -670,6 +766,23 @@ function App() {
                   {listing.city} {listing.postal_code || ""}
                 </p>
                 <p className="price">{formatPrice(listing.price_eur)}</p>
+                {Array.isArray(listing.auto_flags) && listing.auto_flags.length > 0 && (
+                  <div className="auto-flags-row">
+                    {listing.auto_flags.slice(0, 3).map((flag, index) => (
+                      <span
+                        key={`${flag.code || flag.label}-${index}`}
+                        className={`auto-flag-chip ${flag.severity === "warn" ? "is-warn" : "is-info"}`}
+                        title={flag.label}
+                      >
+                        {flag.severity === "warn" ? <AlertTriangle size={11} /> : <Info size={11} />}
+                        {flag.label}
+                      </span>
+                    ))}
+                    {listing.auto_flags.length > 3 && (
+                      <span className="auto-flag-chip is-more">+{listing.auto_flags.length - 3}</span>
+                    )}
+                  </div>
+                )}
                 <p className="meta">
                   <span className="meta-item">
                     <Ruler size={14} />
@@ -748,7 +861,18 @@ function App() {
               <MapPin size={16} />
               {activeListing.city} {activeListing.postal_code || ""}
             </p>
-            <p className="price">{formatPrice(activeListing.price_eur)}</p>
+            <p className="price">
+              {formatPrice(activeListing.price_eur)}
+              {activeListing.price_dropped && (
+                <span className="price-drop-badge price-drop-badge-inline" title="Le prix de cette annonce a baissé">
+                  <TrendingDown size={12} />
+                  Baisse de prix
+                  {formatSignedAmount(activeListing.price_change_abs) && activeListing.price_change_abs < 0 && (
+                    <span className="price-drop-amount">{formatSignedAmount(activeListing.price_change_abs)}</span>
+                  )}
+                </span>
+              )}
+            </p>
             <p className="meta">
               <span className="meta-item">
                 <Ruler size={14} />
@@ -768,6 +892,42 @@ function App() {
               </span>
             </p>
             <p className="modal-description">{activeListing.description}</p>
+
+            {!priceHistoryLoading && priceHistory.length >= 2 && (
+              <div className="price-history-block">
+                <h3>
+                  <TrendingDown size={14} />
+                  Évolution du prix
+                </h3>
+                <PriceSparkline points={priceHistory} />
+                <ul className="price-history-list">
+                  {priceHistory.map((point, index) => (
+                    <li key={`${point.observed_at}-${index}`}>
+                      <span className="price-history-date">{formatShortDate(point.observed_at)}</span>
+                      <span className="price-history-value">{formatPrice(point.price_eur)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {Array.isArray(activeListing.auto_flags) && activeListing.auto_flags.length > 0 && (
+              <div className="auto-flags-block">
+                <h3>
+                  <Flag size={14} />
+                  Signaux automatiques
+                  <span className="auto-flags-block-hint">détection instantanée</span>
+                </h3>
+                <ul>
+                  {activeListing.auto_flags.map((flag, index) => (
+                    <li key={`${flag.code || flag.label}-${index}`} className={flag.severity === "warn" ? "is-warn" : "is-info"}>
+                      {flag.severity === "warn" ? <AlertTriangle size={13} /> : <Info size={13} />}
+                      {flag.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {activeListing.ai_summary && (
               <div className="ai-summary">
