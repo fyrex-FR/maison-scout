@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ListingSourceOut(BaseModel):
@@ -144,3 +144,88 @@ class SearchProfileOut(BaseModel):
     min_bedrooms: int | None
 
     model_config = {"from_attributes": True}
+
+
+class NaturalSearchProfileCreate(BaseModel):
+    name: str | None = None
+    raw_prompt: str
+    is_active: bool = True
+
+
+class NaturalSearchProfileUpdate(BaseModel):
+    name: str | None = None
+    raw_prompt: str | None = None
+    is_active: bool | None = None
+
+
+class NaturalSearchProfileOut(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    raw_prompt: str
+    criteria_json: dict
+    weights_json: dict
+    is_active: bool
+    parsed_model: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class NaturalSearchProfileParseUpdate(BaseModel):
+    criteria_json: dict = Field(default_factory=dict)
+    weights_json: dict = Field(default_factory=dict)
+    parsed_model: str | None = None
+
+
+class ListingAIAnalysisOut(BaseModel):
+    id: int
+    listing_id: int
+    summary: str | None
+    features_json: dict
+    red_flags_json: list
+    confidence_json: dict
+    photo_observations_json: list
+    source_hash: str
+    model: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class ListingAIAnalysisWrite(BaseModel):
+    summary: str | None = None
+    features_json: dict = Field(default_factory=dict)
+    red_flags_json: list = Field(default_factory=list)
+    confidence_json: dict = Field(default_factory=dict)
+    photo_observations_json: list = Field(default_factory=list)
+    source_hash: str | None = None
+    model: str | None = None
+
+
+class AIAnalysisCandidateOut(SemanticDedupListingOut):
+    source_hash: str
+    current_analysis: ListingAIAnalysisOut | None = None
+
+
+class ListingMatchScoreOut(BaseModel):
+    id: int
+    listing_id: int
+    natural_search_profile_id: int
+    score: int
+    matched_reasons_json: list
+    missing_or_uncertain_json: list
+    dealbreakers_json: list
+    model: str | None
+    source_analysis_id: int | None
+
+    model_config = {"from_attributes": True}
+
+
+class ListingMatchScoreWrite(BaseModel):
+    listing_id: int
+    natural_search_profile_id: int
+    score: int
+    matched_reasons_json: list = Field(default_factory=list)
+    missing_or_uncertain_json: list = Field(default_factory=list)
+    dealbreakers_json: list = Field(default_factory=list)
+    model: str | None = None
+    source_analysis_id: int | None = None

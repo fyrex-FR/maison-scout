@@ -1,3 +1,7 @@
+from datetime import datetime
+import hashlib
+import json
+
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
@@ -11,13 +15,33 @@ from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.db import get_db
 from app.ingest import run_crawler
-from app.models import ComparisonItem, CrawlRun, Listing, SearchProfile, SemanticDedupDecision, User, UserListingState
+from app.models import (
+    ComparisonItem,
+    CrawlRun,
+    Listing,
+    ListingAIAnalysis,
+    ListingMatchScore,
+    NaturalSearchProfile,
+    SearchProfile,
+    SemanticDedupDecision,
+    User,
+    UserListingState,
+)
 from app.schemas import (
+    AIAnalysisCandidateOut,
     AuthRequest,
     AuthResponse,
     CrawlRunOut,
+    ListingAIAnalysisOut,
+    ListingAIAnalysisWrite,
+    ListingMatchScoreOut,
+    ListingMatchScoreWrite,
     ListingOut,
     ListingStatusUpdate,
+    NaturalSearchProfileCreate,
+    NaturalSearchProfileOut,
+    NaturalSearchProfileParseUpdate,
+    NaturalSearchProfileUpdate,
     ScoreFactor,
     SemanticDedupCandidateOut,
     SemanticDedupDecisionOut,
@@ -341,6 +365,84 @@ def delete_search_profile(
     return {"status": "deleted"}
 
 
+@app.get("/api/natural-search-profiles", response_model=list[NaturalSearchProfileOut])
+def list_natural_search_profiles(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[NaturalSearchProfile]:
+    stmt = (
+        select(NaturalSearchProfile)
+        .where(NaturalSearchProfile.user_id == user.id)
+        .order_by(NaturalSearchProfile.created_at)
+    )
+    return list(db.scalars(stmt).all())
+
+
+@app.post("/api/natural-search-profiles", response_model=NaturalSearchProfileOut)
+def create_natural_search_profile(
+    payload: NaturalSearchProfileCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> NaturalSearchProfile:
+    raw_prompt = payload.raw_prompt.strip()
+    if not raw_prompt:
+        raise HTTPException(status_code=400, detail="Prompt required")
+    profile = NaturalSearchProfile(
+        user_id=user.id,
+        name=(payload.name or "Recherche principale").strip(),
+        raw_prompt=raw_prompt,
+        is_active=payload.is_active,
+        criteria_json={},
+        weights_json={},
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@app.patch("/api/natural-search-profiles/{profile_id}", response_model=NaturalSearchProfileOut)
+def update_natural_search_profile(
+    profile_id: int,
+    payload: NaturalSearchProfileUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> NaturalSearchProfile:
+    profile = db.get(NaturalSearchProfile, profile_id)
+    if profile is None or profile.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Natural search profile not found")
+    if payload.name is not None:
+        profile.name = payload.name.strip() or profile.name
+    if payload.raw_prompt is not None:
+        raw_prompt = payload.raw_prompt.strip()
+        if not raw_prompt:
+            raise HTTPException(status_code=400, detail="Prompt required")
+        profile.raw_prompt = raw_prompt
+        profile.criteria_json = {}
+        profile.weights_json = {}
+        profile.parsed_model = None
+        profile.parsed_at = None
+    if payload.is_active is not None:
+        profile.is_active = payload.is_active
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@app.delete("/api/natural-search-profiles/{profile_id}")
+def delete_natural_search_profile(
+    profile_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    profile = db.get(NaturalSearchProfile, profile_id)
+    if profile is None or profile.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Natural search profile not found")
+    db.delete(profile)
+    db.commit()
+    return {"status": "deleted"}
+
+
 @app.post("/api/crawl/demo")
 async def crawl_demo(
     db: Session = Depends(get_db),
@@ -451,6 +553,121 @@ def reject_semantic_duplicate(
     )
 
 
+@app.get("/api/ai/listings/pending-analysis", response_model=list[AIAnalysisCandidateOut])
+def list_pending_ai_analysis(
+    limit: int = 25,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    require_crawl_secret(x_crawl_secret)
+    limit = max(1, min(limit, 100))
+    stmt = (
+        select(Listing)
+        .options(selectinload(Listing.sources), selectinload(Listing.photos), selectinload(Listing.ai_analysis))
+        .order_by(Listing.updated_at.desc())
+    )
+    candidates = []
+    for listing in db.scalars(stmt).all():
+        source_hash = ai_listing_source_hash(listing)
+        if listing.ai_analysis is None or listing.ai_analysis.source_hash != source_hash:
+            candidates.append({"source_hash": source_hash, "current_analysis": listing.ai_analysis, **listing_payload(listing)})
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+@app.put("/api/ai/listings/{listing_id}/analysis", response_model=ListingAIAnalysisOut)
+def upsert_listing_ai_analysis(
+    listing_id: int,
+    payload: ListingAIAnalysisWrite,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> ListingAIAnalysis:
+    require_crawl_secret(x_crawl_secret)
+    listing = db.scalar(
+        select(Listing)
+        .where(Listing.id == listing_id)
+        .options(selectinload(Listing.sources), selectinload(Listing.photos))
+    )
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    source_hash = payload.source_hash or ai_listing_source_hash(listing)
+    analysis = db.scalar(select(ListingAIAnalysis).where(ListingAIAnalysis.listing_id == listing_id))
+    if analysis is None:
+        analysis = ListingAIAnalysis(listing_id=listing_id, source_hash=source_hash)
+        db.add(analysis)
+    analysis.summary = payload.summary
+    analysis.features_json = payload.features_json
+    analysis.red_flags_json = payload.red_flags_json
+    analysis.confidence_json = payload.confidence_json
+    analysis.photo_observations_json = payload.photo_observations_json
+    analysis.source_hash = source_hash
+    analysis.model = payload.model
+    analysis.analyzed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(analysis)
+    return analysis
+
+
+@app.put("/api/ai/natural-search-profiles/{profile_id}/parse", response_model=NaturalSearchProfileOut)
+def update_natural_profile_parse(
+    profile_id: int,
+    payload: NaturalSearchProfileParseUpdate,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> NaturalSearchProfile:
+    require_crawl_secret(x_crawl_secret)
+    profile = db.get(NaturalSearchProfile, profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Natural search profile not found")
+    profile.criteria_json = payload.criteria_json
+    profile.weights_json = payload.weights_json
+    profile.parsed_model = payload.parsed_model
+    profile.parsed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@app.put("/api/ai/match-scores", response_model=ListingMatchScoreOut)
+def upsert_listing_match_score(
+    payload: ListingMatchScoreWrite,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> ListingMatchScore:
+    require_crawl_secret(x_crawl_secret)
+    if payload.score < 0 or payload.score > 100:
+        raise HTTPException(status_code=400, detail="Score must be between 0 and 100")
+    if db.get(Listing, payload.listing_id) is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if db.get(NaturalSearchProfile, payload.natural_search_profile_id) is None:
+        raise HTTPException(status_code=404, detail="Natural search profile not found")
+    if payload.source_analysis_id is not None and db.get(ListingAIAnalysis, payload.source_analysis_id) is None:
+        raise HTTPException(status_code=404, detail="Listing AI analysis not found")
+    match_score = db.scalar(
+        select(ListingMatchScore).where(
+            ListingMatchScore.listing_id == payload.listing_id,
+            ListingMatchScore.natural_search_profile_id == payload.natural_search_profile_id,
+        )
+    )
+    if match_score is None:
+        match_score = ListingMatchScore(
+            listing_id=payload.listing_id,
+            natural_search_profile_id=payload.natural_search_profile_id,
+        )
+        db.add(match_score)
+    match_score.score = payload.score
+    match_score.matched_reasons_json = payload.matched_reasons_json
+    match_score.missing_or_uncertain_json = payload.missing_or_uncertain_json
+    match_score.dealbreakers_json = payload.dealbreakers_json
+    match_score.model = payload.model
+    match_score.source_analysis_id = payload.source_analysis_id
+    match_score.scored_at = datetime.utcnow()
+    db.commit()
+    db.refresh(match_score)
+    return match_score
+
+
 def _dedup_candidate_payload(left: Listing, right: Listing) -> dict:
     left_sources = {source.source for source in left.sources}
     right_sources = {source.source for source in right.sources}
@@ -468,6 +685,43 @@ def _dedup_candidate_payload(left: Listing, right: Listing) -> dict:
         "living_area_delta_m2": living_area_delta_m2,
         "source_overlap": sorted(left_sources & right_sources),
     }
+
+
+def listing_payload(listing: Listing) -> dict:
+    return {
+        "id": listing.id,
+        "title": listing.title,
+        "city": listing.city,
+        "postal_code": listing.postal_code,
+        "price_eur": listing.price_eur,
+        "living_area_m2": listing.living_area_m2,
+        "land_area_m2": listing.land_area_m2,
+        "rooms": listing.rooms,
+        "bedrooms": listing.bedrooms,
+        "energy_rating": listing.energy_rating,
+        "description": listing.description,
+        "sources": listing.sources,
+        "photos": listing.photos,
+    }
+
+
+def ai_listing_source_hash(listing: Listing) -> str:
+    payload = {
+        "title": listing.title,
+        "city": listing.city,
+        "postal_code": listing.postal_code,
+        "price_eur": listing.price_eur,
+        "living_area_m2": listing.living_area_m2,
+        "land_area_m2": listing.land_area_m2,
+        "rooms": listing.rooms,
+        "bedrooms": listing.bedrooms,
+        "energy_rating": listing.energy_rating,
+        "description": listing.description,
+        "sources": sorted((source.source, source.source_id, source.url) for source in listing.sources),
+        "photos": sorted((photo.position, photo.url) for photo in listing.photos),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def active_search_cities(db: Session) -> list[str]:

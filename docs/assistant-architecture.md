@@ -306,20 +306,15 @@ Already in place:
 - deterministic ingest dedup
 - semantic dedup endpoints and audit table
 - OpenClaw semantic dedup job
+- assistant storage foundation:
+  - `listing_ai_analysis`
+  - `natural_search_profiles`
+  - `listing_match_scores`
+- user endpoints for natural-language search profiles
+- internal `X-Crawl-Secret` endpoints for AI analysis and match score writeback
 
 Planned next:
 
-1. Add this architecture document to the repo.
-2. Add Alembic migration and SQLAlchemy models for:
-   - `listing_ai_analysis`
-   - `natural_search_profiles`
-   - `listing_match_scores`
-3. Add backend schemas and endpoints:
-   - user CRUD for natural search profiles
-   - internal queue/read endpoints for listings needing analysis
-   - internal write endpoints for listing analyses and match scores
-4. Add focused backend tests.
-5. Add OpenClaw worker for listing analysis and scoring.
-6. Update the frontend to edit natural prompts and display personalized,
+1. Add OpenClaw worker for listing analysis and scoring.
+2. Update the frontend to edit natural prompts and display personalized,
    explained rankings.
-

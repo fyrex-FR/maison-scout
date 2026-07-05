@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -28,6 +28,8 @@ class Listing(Base):
     sources: Mapped[list["ListingSource"]] = relationship(back_populates="listing", cascade="all, delete-orphan")
     photos: Mapped[list["ListingPhoto"]] = relationship(back_populates="listing", cascade="all, delete-orphan")
     user_states: Mapped[list["UserListingState"]] = relationship(back_populates="listing", cascade="all, delete-orphan")
+    ai_analysis: Mapped["ListingAIAnalysis | None"] = relationship(back_populates="listing", cascade="all, delete-orphan")
+    match_scores: Mapped[list["ListingMatchScore"]] = relationship(back_populates="listing", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -40,6 +42,10 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     search_profiles: Mapped[list["SearchProfile"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    natural_search_profiles: Mapped[list["NaturalSearchProfile"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     listing_states: Mapped[list["UserListingState"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
@@ -98,6 +104,73 @@ class SemanticDedupDecision(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     model: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ListingAIAnalysis(Base):
+    __tablename__ = "listing_ai_analysis"
+    __table_args__ = (UniqueConstraint("listing_id", name="uq_listing_ai_analysis_listing"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), index=True)
+    summary: Mapped[str | None] = mapped_column(Text)
+    features_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    red_flags_json: Mapped[list] = mapped_column(JSON, default=list)
+    confidence_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    photo_observations_json: Mapped[list] = mapped_column(JSON, default=list)
+    source_hash: Mapped[str] = mapped_column(String(64), index=True)
+    model: Mapped[str | None] = mapped_column(String(120))
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    listing: Mapped[Listing] = relationship(back_populates="ai_analysis")
+    match_scores: Mapped[list["ListingMatchScore"]] = relationship(back_populates="source_analysis")
+
+
+class NaturalSearchProfile(Base):
+    __tablename__ = "natural_search_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    raw_prompt: Mapped[str] = mapped_column(Text)
+    criteria_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    weights_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    parsed_model: Mapped[str | None] = mapped_column(String(120))
+    parsed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user: Mapped[User] = relationship(back_populates="natural_search_profiles")
+    match_scores: Mapped[list["ListingMatchScore"]] = relationship(
+        back_populates="natural_search_profile",
+        cascade="all, delete-orphan",
+    )
+
+
+class ListingMatchScore(Base):
+    __tablename__ = "listing_match_scores"
+    __table_args__ = (
+        UniqueConstraint("listing_id", "natural_search_profile_id", name="uq_listing_match_profile"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), index=True)
+    natural_search_profile_id: Mapped[int] = mapped_column(ForeignKey("natural_search_profiles.id"), index=True)
+    score: Mapped[int] = mapped_column(Integer, index=True)
+    matched_reasons_json: Mapped[list] = mapped_column(JSON, default=list)
+    missing_or_uncertain_json: Mapped[list] = mapped_column(JSON, default=list)
+    dealbreakers_json: Mapped[list] = mapped_column(JSON, default=list)
+    model: Mapped[str | None] = mapped_column(String(120))
+    source_analysis_id: Mapped[int | None] = mapped_column(ForeignKey("listing_ai_analysis.id"), index=True)
+    scored_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    listing: Mapped[Listing] = relationship(back_populates="match_scores")
+    natural_search_profile: Mapped[NaturalSearchProfile] = relationship(back_populates="match_scores")
+    source_analysis: Mapped[ListingAIAnalysis | None] = relationship(back_populates="match_scores")
 
 
 class ListingSource(Base):
