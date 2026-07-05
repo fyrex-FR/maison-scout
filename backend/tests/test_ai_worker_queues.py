@@ -174,9 +174,12 @@ def test_pending_match_scores_returns_pair_when_unscored():
     response = client.get("/api/ai/pending-match-scores", headers=SECRET)
     assert response.status_code == 200
     payload = response.json()
-    assert payload == [
-        {"listing_id": listing_id, "natural_search_profile_id": profile_id, "source_analysis_id": analysis_id}
-    ]
+    assert len(payload) == 1
+    assert payload[0]["listing_id"] == listing_id
+    assert payload[0]["natural_search_profile_id"] == profile_id
+    assert payload[0]["source_analysis_id"] == analysis_id
+    assert payload[0]["source_analysis"]["id"] == analysis_id
+    assert payload[0]["natural_search_profile"]["id"] == profile_id
 
 
 def test_pending_match_scores_excludes_up_to_date_scores():
@@ -234,9 +237,12 @@ def test_pending_match_scores_returns_pair_when_score_is_stale():
     response = client.get("/api/ai/pending-match-scores", headers=SECRET)
     assert response.status_code == 200
     payload = response.json()
-    assert payload == [
-        {"listing_id": listing_id, "natural_search_profile_id": profile_id, "source_analysis_id": analysis_id}
-    ]
+    assert len(payload) == 1
+    assert payload[0]["listing_id"] == listing_id
+    assert payload[0]["natural_search_profile_id"] == profile_id
+    assert payload[0]["source_analysis_id"] == analysis_id
+    assert payload[0]["source_analysis"]["id"] == analysis_id
+    assert payload[0]["natural_search_profile"]["id"] == profile_id
 
 
 def test_pending_match_scores_excludes_listing_outside_classic_criteria():

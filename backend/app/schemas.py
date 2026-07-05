@@ -249,6 +249,8 @@ class PendingMatchPairOut(BaseModel):
     listing_id: int
     natural_search_profile_id: int
     source_analysis_id: int
+    source_analysis: ListingAIAnalysisOut | None = None
+    natural_search_profile: NaturalSearchProfileOut | None = None
 
 
 class PriceHistoryPointOut(BaseModel):

@@ -863,6 +863,8 @@ def list_pending_match_scores(
                     "listing_id": listing.id,
                     "natural_search_profile_id": profile.id,
                     "source_analysis_id": analysis.id,
+                    "source_analysis": analysis,
+                    "natural_search_profile": profile,
                 }
             )
             if len(pairs) >= limit:
