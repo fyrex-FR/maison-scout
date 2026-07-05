@@ -521,7 +521,7 @@ h1 {
   flex: 1 1 170px;
 }
 
-.add-city-form input:nth-child(2) {
+.add-city-form input:nth-child(n + 2) {
   flex: 0 1 140px;
 }
 
@@ -580,6 +580,51 @@ h1 {
 
 .filters .active:hover {
   color: #fff;
+}
+
+.standard-filters {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-4);
+  display: grid;
+  grid-template-columns: auto repeat(4, minmax(120px, 1fr)) minmax(150px, 0.8fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+
+.standard-filters-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-brand-dark);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.standard-filters input,
+.standard-filters select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  font: inherit;
+  background: var(--color-surface-muted);
+  color: var(--color-ink);
+}
+
+.standard-filters input:focus,
+.standard-filters select:focus {
+  outline: none;
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px rgba(47, 111, 92, 0.12);
+}
+
+.standard-filters .compact {
+  min-height: 43px;
+  padding-inline: var(--space-4);
 }
 
 /* ==========================================================================
@@ -1341,6 +1386,16 @@ h2 {
   .profiles {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .standard-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .standard-filters-title,
+  .standard-filters select,
+  .standard-filters .compact {
+    grid-column: 1 / -1;
   }
 
   .add-city-form {

@@ -16,6 +16,7 @@ import {
   Loader2,
   Save,
   Settings,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 import "./styles.css";
@@ -86,6 +87,13 @@ function App() {
     min_living_area_m2: "",
     min_land_area_m2: "",
     min_bedrooms: "",
+  });
+  const [standardFilters, setStandardFilters] = useState({
+    max_price_eur: "",
+    min_living_area_m2: "",
+    min_land_area_m2: "",
+    min_bedrooms: "",
+    sort: "score",
   });
   const [selectedListing, setSelectedListing] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
@@ -254,9 +262,26 @@ function App() {
   }, [token]);
 
   const filtered = useMemo(() => {
-    if (status === "all") return listings;
-    return listings.filter((listing) => listing.status === status);
-  }, [listings, status]);
+    const matchesNumber = (value, filterValue, mode) => {
+      if (!filterValue) return true;
+      if (value === null || value === undefined) return false;
+      const parsed = Number(filterValue);
+      if (!Number.isFinite(parsed)) return true;
+      return mode === "max" ? value <= parsed : value >= parsed;
+    };
+    const visible = listings
+      .filter((listing) => status === "all" || listing.status === status)
+      .filter((listing) => matchesNumber(listing.price_eur, standardFilters.max_price_eur, "max"))
+      .filter((listing) => matchesNumber(listing.living_area_m2, standardFilters.min_living_area_m2, "min"))
+      .filter((listing) => matchesNumber(listing.land_area_m2, standardFilters.min_land_area_m2, "min"))
+      .filter((listing) => matchesNumber(listing.bedrooms, standardFilters.min_bedrooms, "min"));
+    return [...visible].sort((a, b) => {
+      if (standardFilters.sort === "price") return (a.price_eur ?? Number.MAX_SAFE_INTEGER) - (b.price_eur ?? Number.MAX_SAFE_INTEGER);
+      if (standardFilters.sort === "surface") return (b.living_area_m2 ?? 0) - (a.living_area_m2 ?? 0);
+      if (standardFilters.sort === "updated") return 0;
+      return (b.score ?? 0) - (a.score ?? 0);
+    });
+  }, [listings, status, standardFilters]);
 
   const activeListing = selectedListing ? listings.find((listing) => listing.id === selectedListing.id) || selectedListing : null;
 
@@ -374,6 +399,24 @@ function App() {
             value={cityCriteria.max_price_eur}
             onChange={(event) => setCityCriteria({ ...cityCriteria, max_price_eur: event.target.value })}
           />
+          <input
+            placeholder="Surf. min"
+            inputMode="numeric"
+            value={cityCriteria.min_living_area_m2}
+            onChange={(event) => setCityCriteria({ ...cityCriteria, min_living_area_m2: event.target.value })}
+          />
+          <input
+            placeholder="Terrain min"
+            inputMode="numeric"
+            value={cityCriteria.min_land_area_m2}
+            onChange={(event) => setCityCriteria({ ...cityCriteria, min_land_area_m2: event.target.value })}
+          />
+          <input
+            placeholder="Ch. min"
+            inputMode="numeric"
+            value={cityCriteria.min_bedrooms}
+            onChange={(event) => setCityCriteria({ ...cityCriteria, min_bedrooms: event.target.value })}
+          />
           <button title="Ajouter" type="submit">
             <Plus size={18} />
           </button>
@@ -388,18 +431,73 @@ function App() {
         ))}
       </section>
 
+      <section className="standard-filters" aria-label="Filtres standards">
+        <div className="standard-filters-title">
+          <SlidersHorizontal size={17} />
+          <span>Filtres standards</span>
+        </div>
+        <input
+          placeholder="Budget max"
+          inputMode="numeric"
+          value={standardFilters.max_price_eur}
+          onChange={(event) => setStandardFilters({ ...standardFilters, max_price_eur: event.target.value })}
+        />
+        <input
+          placeholder="Surface min"
+          inputMode="numeric"
+          value={standardFilters.min_living_area_m2}
+          onChange={(event) => setStandardFilters({ ...standardFilters, min_living_area_m2: event.target.value })}
+        />
+        <input
+          placeholder="Terrain min"
+          inputMode="numeric"
+          value={standardFilters.min_land_area_m2}
+          onChange={(event) => setStandardFilters({ ...standardFilters, min_land_area_m2: event.target.value })}
+        />
+        <input
+          placeholder="Chambres min"
+          inputMode="numeric"
+          value={standardFilters.min_bedrooms}
+          onChange={(event) => setStandardFilters({ ...standardFilters, min_bedrooms: event.target.value })}
+        />
+        <select
+          value={standardFilters.sort}
+          onChange={(event) => setStandardFilters({ ...standardFilters, sort: event.target.value })}
+        >
+          <option value="score">Score</option>
+          <option value="price">Prix croissant</option>
+          <option value="surface">Surface décroissante</option>
+          <option value="updated">Plus récentes</option>
+        </select>
+        <button
+          type="button"
+          className="ghost compact"
+          onClick={() =>
+            setStandardFilters({
+              max_price_eur: "",
+              min_living_area_m2: "",
+              min_land_area_m2: "",
+              min_bedrooms: "",
+              sort: "score",
+            })
+          }
+        >
+          Réinitialiser
+        </button>
+      </section>
+
       <section className="summary">
         <div>
+          <strong>{filtered.length}</strong>
+          <span>Affichées</span>
+        </div>
+        <div>
           <strong>{listings.length}</strong>
-          <span>Annonces suivies</span>
+          <span>Compatibles profils</span>
         </div>
         <div>
           <strong>{runs[0]?.found_count ?? 0}</strong>
           <span>Trouvées au dernier scan</span>
-        </div>
-        <div>
-          <strong>{runs[0]?.status ?? "Jamais lancé"}</strong>
-          <span>Statut crawler</span>
         </div>
       </section>
 

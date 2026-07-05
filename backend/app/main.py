@@ -128,14 +128,13 @@ def list_listings(user: User = Depends(get_current_user), db: Session = Depends(
     }
     if profile_cities:
         listings = [listing for listing in listings if canonical_city_name(listing.city) in profile_cities]
+    listings = [listing for listing in listings if listing_matches_any_profile(listing, profiles_for_user(db, user))]
     return attach_user_context(db, user, listings)
 
 
 def attach_user_context(db: Session, user: User, listings: list[Listing]) -> list[Listing]:
     """Attach per-user status/note/score onto listings not owned by the DB row itself."""
-    profiles = list(
-        db.scalars(select(SearchProfile).where(SearchProfile.user_id == user.id, SearchProfile.enabled == True)).all()  # noqa: E712
-    )
+    profiles = profiles_for_user(db, user)
     listing_ids = [listing.id for listing in listings]
     states = {
         state.listing_id: state
@@ -154,6 +153,35 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
         listing.score = score
         listing.score_breakdown = breakdown
     return listings
+
+
+def profiles_for_user(db: Session, user: User) -> list[SearchProfile]:
+    return list(
+        db.scalars(select(SearchProfile).where(SearchProfile.user_id == user.id, SearchProfile.enabled == True)).all()  # noqa: E712
+    )
+
+
+def listing_matches_any_profile(listing: Listing, profiles: list[SearchProfile]) -> bool:
+    matching = [profile for profile in profiles if canonical_city_name(profile.city) == canonical_city_name(listing.city)]
+    if not matching:
+        return False
+    return any(listing_matches_profile(listing, profile) for profile in matching)
+
+
+def listing_matches_profile(listing: Listing, profile: SearchProfile) -> bool:
+    if profile.max_price_eur is not None and (listing.price_eur is None or listing.price_eur > profile.max_price_eur):
+        return False
+    if profile.min_living_area_m2 is not None and (
+        listing.living_area_m2 is None or listing.living_area_m2 < profile.min_living_area_m2
+    ):
+        return False
+    if profile.min_land_area_m2 is not None and (
+        listing.land_area_m2 is None or listing.land_area_m2 < profile.min_land_area_m2
+    ):
+        return False
+    if profile.min_bedrooms is not None and (listing.bedrooms is None or listing.bedrooms < profile.min_bedrooms):
+        return False
+    return True
 
 
 def score_for_user(listing: Listing, profiles: list[SearchProfile]) -> tuple[int, list[ScoreFactor]]:

@@ -14,6 +14,7 @@ from app.models import (
     ListingPhoto,
     ListingSource,
     NaturalSearchProfile,
+    SearchProfile,
     User,
 )
 
@@ -31,6 +32,7 @@ def _client():
         with SessionLocal() as session:
             yield session
 
+    app.dependency_overrides.clear()
     app.dependency_overrides[get_db] = override_get_db
     settings.crawl_secret = "test-secret"
     client = TestClient(app)
@@ -44,7 +46,7 @@ def _user(db: Session, email: str = "x@example.com") -> User:
     return user
 
 
-def _listing(db: Session) -> Listing:
+def _listing(db: Session, source_id: str = "ga-1") -> Listing:
     listing = Listing(
         title="Villa avec piscine",
         city="Frejus",
@@ -58,8 +60,8 @@ def _listing(db: Session) -> Listing:
     )
     db.add(listing)
     db.flush()
-    db.add(ListingSource(listing_id=listing.id, source="green-acres", source_id="ga-1", url="https://ga/1"))
-    db.add(ListingPhoto(listing_id=listing.id, url="https://cdn/1.jpg", position=0))
+    db.add(ListingSource(listing_id=listing.id, source="green-acres", source_id=source_id, url=f"https://ga/{source_id}"))
+    db.add(ListingPhoto(listing_id=listing.id, url=f"https://cdn/{source_id}.jpg", position=0))
     db.commit()
     db.refresh(listing)
     return listing
@@ -194,3 +196,34 @@ def test_ai_worker_can_store_profile_parse_and_match_score():
         assert stored.natural_search_profile_id == profile_id
         assert stored.matched_reasons_json == ["Piscine visible", "4 chambres"]
 
+
+def test_listing_endpoint_applies_standard_search_profile_criteria():
+    client, SessionLocal = _client()
+    with SessionLocal() as db:
+        user = _user(db)
+        db.add(
+            SearchProfile(
+                user_id=user.id,
+                name="Frejus filtre",
+                city="Frejus",
+                max_price_eur=800000,
+                min_living_area_m2=120,
+                min_land_area_m2=500,
+                min_bedrooms=4,
+            )
+        )
+        matching = _listing(db, "ga-match")
+        too_expensive = _listing(db, "ga-price")
+        too_expensive.price_eur = 900000
+        too_small = _listing(db, "ga-small")
+        too_small.living_area_m2 = 90
+        other_city = _listing(db, "ga-other")
+        other_city.city = "Saint-Raphael"
+        db.commit()
+        matching_id = matching.id
+        token = create_token(user)
+
+    response = client.get("/api/listings", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert [listing["id"] for listing in response.json()] == [matching_id]
