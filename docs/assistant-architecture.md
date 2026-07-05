@@ -298,7 +298,7 @@ See also:
 
 ## Implementation Status
 
-Already in place:
+Already in place and tested:
 
 - deterministic crawlers and ingest
 - classic per-user search profiles
@@ -310,11 +310,30 @@ Already in place:
   - `listing_ai_analysis`
   - `natural_search_profiles`
   - `listing_match_scores`
-- user endpoints for natural-language search profiles
-- internal `X-Crawl-Secret` endpoints for AI analysis and match score writeback
+- user-facing CRUD endpoints for natural-language search profiles
+  (`/api/natural-search-profiles`, create/list/patch/delete), including the
+  "editing `raw_prompt` resets `criteria_json`/`weights_json`/`parsed_model`"
+  behavior that marks a profile as needing re-parsing
+- internal `X-Crawl-Secret` endpoints for the assistant worker:
+  - `GET /api/ai/listings/pending-analysis`
+  - `PUT /api/ai/listings/{listing_id}/analysis`
+  - `PUT /api/ai/natural-search-profiles/{profile_id}/parse`
+  - `PUT /api/ai/match-scores`
+
+In progress (other agents, in parallel):
+
+- exposing `listing_ai_analysis` / `listing_match_scores` data through the
+  public `/api/listings` response (`ai_summary`, `red_flags`, `match_score`
+  fields already exist on `ListingOut` and are being wired up)
+- frontend UI for editing natural-language prompts and displaying
+  personalized, explained rankings
 
 Planned next:
 
-1. Add OpenClaw worker for listing analysis and scoring.
-2. Update the frontend to edit natural prompts and display personalized,
-   explained rankings.
+1. Build the external OpenClaw worker that actually calls an AI model to
+   produce listing analyses, parse prompts, and compute match scores against
+   the internal endpoints above. See `docs/openclaw-assistant-worker.md` for
+   the full build spec, including two known backend gaps (no internal
+   "profiles pending parse" listing endpoint, no internal "scoring scope"
+   endpoint) that block Jobs B/C from running fully unattended until
+   addressed.
