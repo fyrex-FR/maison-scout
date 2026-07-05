@@ -1,16 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
   BedDouble,
   Building2,
   CheckCheck,
+  Copy,
   Flag,
   Heart,
   Home,
   Info,
   LandPlot,
+  List,
   LogOut,
+  Map as MapIcon,
   MapPin,
   Pencil,
   Phone,
@@ -21,13 +24,18 @@ import {
   Loader2,
   Save,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkle,
   Sparkles,
   Target,
   TrendingDown,
+  UserCheck,
+  Users,
   X,
 } from "lucide-react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import "./styles.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -81,6 +89,25 @@ function scoreTier(score) {
   if (score >= 70) return "score-good";
   if (score >= 40) return "score-mid";
   return "score-low";
+}
+
+const SCORE_TIER_COLORS = {
+  "score-good": "#1f7a4d",
+  "score-mid": "#b3781a",
+  "score-low": "#b0402f",
+};
+
+function scoreTierColor(score) {
+  return SCORE_TIER_COLORS[scoreTier(score)] || SCORE_TIER_COLORS["score-mid"];
+}
+
+function hasCoordinates(listing) {
+  return (
+    typeof listing?.latitude === "number" &&
+    Number.isFinite(listing.latitude) &&
+    typeof listing?.longitude === "number" &&
+    Number.isFinite(listing.longitude)
+  );
 }
 
 function renderListItem(item) {
@@ -158,12 +185,6 @@ function App() {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ email: "", password: "", display_name: "", invite_code: "" });
   const [newCity, setNewCity] = useState("");
-  const [cityCriteria, setCityCriteria] = useState({
-    max_price_eur: "",
-    min_living_area_m2: "",
-    min_land_area_m2: "",
-    min_bedrooms: "",
-  });
   const [standardFilters, setStandardFilters] = useState({
     max_price_eur: "",
     min_living_area_m2: "",
@@ -181,6 +202,18 @@ function App() {
   const [showComparison, setShowComparison] = useState(false);
   const [priceHistory, setPriceHistory] = useState([]);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  const [viewMode, setViewMode] = useState("list");
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminInviteCodes, setAdminInviteCodes] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState("");
+  const [adminNoteDraft, setAdminNoteDraft] = useState("");
+  const [adminGenerating, setAdminGenerating] = useState(false);
+
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const mapMarkersRef = useRef([]);
 
   function authHeaders() {
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -224,6 +257,68 @@ function App() {
     }
   }
 
+  async function openAdmin() {
+    setShowAdmin(true);
+    setAdminError("");
+    setAdminLoading(true);
+    try {
+      const [usersResponse, codesResponse] = await Promise.all([
+        fetch(`${API_URL}/api/admin/users`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/admin/invite-codes`, { headers: authHeaders() }),
+      ]);
+      if (usersResponse.status === 403 || codesResponse.status === 403) {
+        setAdminError("Accès administrateur requis.");
+        setAdminUsers([]);
+        setAdminInviteCodes([]);
+        return;
+      }
+      setAdminUsers(usersResponse.ok ? await usersResponse.json() : []);
+      setAdminInviteCodes(codesResponse.ok ? await codesResponse.json() : []);
+    } catch {
+      setAdminError("Impossible de charger les données d'administration.");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function generateInviteCode(event) {
+    event.preventDefault();
+    if (adminGenerating) return;
+    setAdminGenerating(true);
+    setAdminError("");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/invite-codes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ note: adminNoteDraft.trim() || undefined }),
+      });
+      if (!response.ok) {
+        setAdminError("Impossible de générer un code.");
+        return;
+      }
+      const created = await response.json();
+      setAdminInviteCodes((current) => [created, ...current]);
+      setAdminNoteDraft("");
+    } finally {
+      setAdminGenerating(false);
+    }
+  }
+
+  async function toggleInviteCodeActive(code) {
+    setAdminError("");
+    const response = await fetch(`${API_URL}/api/admin/invite-codes/${code.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ active: !code.active }),
+    });
+    if (!response.ok) {
+      setAdminError("Impossible de mettre à jour le code.");
+      return;
+    }
+    const updated = await response.json();
+    setAdminInviteCodes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+  }
+
   async function submitAuth(event) {
     event.preventDefault();
     setError("");
@@ -254,6 +349,10 @@ function App() {
     setNaturalProfiles([]);
     setSelectedNaturalProfile(null);
     setInitialLoading(true);
+    setShowAdmin(false);
+    setAdminUsers([]);
+    setAdminInviteCodes([]);
+    setViewMode("list");
   }
 
   async function runAllCrawlers() {
@@ -311,20 +410,24 @@ function App() {
   async function addCity(event) {
     event.preventDefault();
     if (!newCity.trim()) return;
-    await fetch(`${API_URL}/api/search-profiles`, {
+    const response = await fetch(`${API_URL}/api/search-profiles`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({
         city: newCity.trim(),
-        max_price_eur: numberOrNull(cityCriteria.max_price_eur),
-        min_living_area_m2: numberOrNull(cityCriteria.min_living_area_m2),
-        min_land_area_m2: numberOrNull(cityCriteria.min_land_area_m2),
-        min_bedrooms: numberOrNull(cityCriteria.min_bedrooms),
+        max_price_eur: null,
+        min_living_area_m2: null,
+        min_land_area_m2: null,
+        min_bedrooms: null,
       }),
     });
     setNewCity("");
-    setCityCriteria({ max_price_eur: "", min_living_area_m2: "", min_land_area_m2: "", min_bedrooms: "" });
     await loadListings();
+    if (response.ok) {
+      const created = await response.json();
+      // Ouvre directement les réglages pour laisser définir budget/surface/terrain/chambres.
+      setSelectedProfile(created);
+    }
   }
 
   async function deleteProfile(profileId) {
@@ -465,6 +568,82 @@ function App() {
 
   const activeListing = selectedListing ? listings.find((listing) => listing.id === selectedListing.id) || selectedListing : null;
 
+  const geoListings = useMemo(() => filtered.filter(hasCoordinates), [filtered]);
+
+  useEffect(() => {
+    if (viewMode !== "map" || !mapContainerRef.current) return;
+
+    if (!mapInstanceRef.current) {
+      const map = L.map(mapContainerRef.current, { attributionControl: true }).setView([46.6, 2.4], 6);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+      mapInstanceRef.current = map;
+    }
+    const map = mapInstanceRef.current;
+
+    // Nettoie les marqueurs précédents avant de redessiner.
+    mapMarkersRef.current.forEach((marker) => marker.remove());
+    mapMarkersRef.current = [];
+
+    geoListings.forEach((listing) => {
+      const marker = L.circleMarker([listing.latitude, listing.longitude], {
+        radius: 9,
+        color: scoreTierColor(listing.score),
+        weight: 2,
+        fillColor: scoreTierColor(listing.score),
+        fillOpacity: 0.75,
+      }).addTo(map);
+      const popupNode = document.createElement("div");
+      popupNode.className = "map-popup";
+      const title = document.createElement("p");
+      title.className = "map-popup-title";
+      title.textContent = listing.title || "Annonce";
+      const price = document.createElement("p");
+      price.className = "map-popup-price";
+      price.textContent = formatPrice(listing.price_eur);
+      const city = document.createElement("p");
+      city.className = "map-popup-city";
+      city.textContent = `${listing.city || ""} ${listing.postal_code || ""}`.trim();
+      popupNode.append(title, price, city);
+      if (listing.sources?.[0]?.url) {
+        const link = document.createElement("a");
+        link.href = listing.sources[0].url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.className = "map-popup-link";
+        link.textContent = "Voir l'annonce";
+        popupNode.appendChild(link);
+      }
+      const detailButton = document.createElement("button");
+      detailButton.type = "button";
+      detailButton.className = "map-popup-detail";
+      detailButton.textContent = "Voir la fiche";
+      detailButton.addEventListener("click", () => openListing(listing));
+      popupNode.appendChild(detailButton);
+      marker.bindPopup(popupNode);
+      mapMarkersRef.current.push(marker);
+    });
+
+    if (geoListings.length > 0) {
+      const bounds = L.latLngBounds(geoListings.map((listing) => [listing.latitude, listing.longitude]));
+      map.fitBounds(bounds, { padding: [32, 32], maxZoom: 15 });
+    }
+
+    // Leaflet a besoin d'un recalcul de taille quand le conteneur vient d'apparaître.
+    setTimeout(() => map.invalidateSize(), 0);
+  }, [viewMode, geoListings]);
+
+  useEffect(() => {
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
   if (!token) {
     return (
       <main className="auth-layout">
@@ -563,6 +742,11 @@ function App() {
               </span>
             )}
           </button>
+          {user?.is_admin && (
+            <button className="icon-button" title="Administration" onClick={openAdmin}>
+              <ShieldCheck size={18} />
+            </button>
+          )}
           <button className="icon-button" title="Déconnexion" onClick={logout}>
             <LogOut size={18} />
           </button>
@@ -587,34 +771,13 @@ function App() {
         </div>
         <form className="add-city-form" onSubmit={addCity}>
           <input placeholder="Ajouter une ville" value={newCity} onChange={(event) => setNewCity(event.target.value)} />
-          <input
-            placeholder="Budget max"
-            inputMode="numeric"
-            value={cityCriteria.max_price_eur}
-            onChange={(event) => setCityCriteria({ ...cityCriteria, max_price_eur: event.target.value })}
-          />
-          <input
-            placeholder="Surf. min"
-            inputMode="numeric"
-            value={cityCriteria.min_living_area_m2}
-            onChange={(event) => setCityCriteria({ ...cityCriteria, min_living_area_m2: event.target.value })}
-          />
-          <input
-            placeholder="Terrain min"
-            inputMode="numeric"
-            value={cityCriteria.min_land_area_m2}
-            onChange={(event) => setCityCriteria({ ...cityCriteria, min_land_area_m2: event.target.value })}
-          />
-          <input
-            placeholder="Ch. min"
-            inputMode="numeric"
-            value={cityCriteria.min_bedrooms}
-            onChange={(event) => setCityCriteria({ ...cityCriteria, min_bedrooms: event.target.value })}
-          />
           <button title="Ajouter" type="submit">
             <Plus size={18} />
           </button>
         </form>
+        <p className="add-city-hint">
+          Budget, surface, terrain et chambres se règlent ensuite par ville via l'icône <Settings size={12} />.
+        </p>
       </section>
 
       <section className="natural-profiles">
@@ -673,12 +836,24 @@ function App() {
         </form>
       </section>
 
-      <section className="filters">
-        {FILTERS.map(([value, label]) => (
-          <button key={value} className={status === value ? "active" : ""} onClick={() => setStatus(value)}>
-            {label}
+      <section className="filters-row">
+        <div className="filters">
+          {FILTERS.map(([value, label]) => (
+            <button key={value} className={status === value ? "active" : ""} onClick={() => setStatus(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="view-toggle" role="group" aria-label="Mode d'affichage">
+          <button type="button" className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")}>
+            <List size={15} />
+            Liste
           </button>
-        ))}
+          <button type="button" className={viewMode === "map" ? "active" : ""} onClick={() => setViewMode("map")}>
+            <MapIcon size={15} />
+            Carte
+          </button>
+        </div>
       </section>
 
       <section className="standard-filters" aria-label="Affiner l'affichage">
@@ -706,7 +881,7 @@ function App() {
           onChange={(event) => setStandardFilters({ ...standardFilters, min_land_area_m2: event.target.value })}
         />
         <input
-          placeholder="Chambres min"
+          placeholder="Ch. min"
           inputMode="numeric"
           value={standardFilters.min_bedrooms}
           onChange={(event) => setStandardFilters({ ...standardFilters, min_bedrooms: event.target.value })}
@@ -798,6 +973,16 @@ function App() {
             </button>
           )}
         </div>
+      ) : viewMode === "map" ? (
+        <section className="map-view">
+          <div className="map-container" ref={mapContainerRef} />
+          {geoListings.length === 0 && (
+            <div className="map-empty-overlay">
+              <MapIcon size={22} />
+              <p>Aucune annonce géolocalisée pour l'instant (les coordonnées arrivent au fil des scans Bien'ici).</p>
+            </div>
+          )}
+        </section>
       ) : (
         <section className="grid">
           {filtered.map((listing) => (
@@ -1340,6 +1525,141 @@ function App() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {showAdmin && (
+        <div className="modal-backdrop" onClick={() => setShowAdmin(false)}>
+          <section className="modal admin-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" title="Fermer" onClick={() => setShowAdmin(false)}>
+              <X size={18} />
+            </button>
+            <h2>
+              <ShieldCheck size={18} style={{ verticalAlign: "-3px", marginRight: 6, color: "var(--color-brand)" }} />
+              Administration
+            </h2>
+            {adminError && <p className="error">{adminError}</p>}
+            {adminLoading ? (
+              <p className="admin-loading">
+                <Loader2 size={16} className="spin" />
+                Chargement...
+              </p>
+            ) : (
+              <>
+                <div className="admin-section">
+                  <h3>
+                    <Users size={15} />
+                    Utilisateurs
+                  </h3>
+                  {adminUsers.length === 0 ? (
+                    <p className="admin-empty">Aucun utilisateur.</p>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Email</th>
+                            <th>Nom</th>
+                            <th>Inscrit le</th>
+                            <th>Rôle</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminUsers.map((adminUser) => (
+                            <tr key={adminUser.id}>
+                              <td>{adminUser.email}</td>
+                              <td>{adminUser.display_name || "—"}</td>
+                              <td>{formatShortDate(adminUser.created_at)}</td>
+                              <td>
+                                {adminUser.is_admin ? (
+                                  <span className="admin-badge">
+                                    <UserCheck size={12} />
+                                    Admin
+                                  </span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="admin-section">
+                  <h3>
+                    <ShieldCheck size={15} />
+                    Codes d'invitation
+                  </h3>
+                  {adminInviteCodes.length === 0 ? (
+                    <p className="admin-empty">Aucun code généré pour l'instant.</p>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Code</th>
+                            <th>Statut</th>
+                            <th>Note</th>
+                            <th>Utilisations</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminInviteCodes.map((code) => (
+                            <tr key={code.id}>
+                              <td>
+                                <span className="admin-code">
+                                  {code.code}
+                                  <button
+                                    type="button"
+                                    className="admin-copy"
+                                    title="Copier le code"
+                                    onClick={() => navigator.clipboard?.writeText(code.code)}
+                                  >
+                                    <Copy size={13} />
+                                  </button>
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`admin-status${code.active ? " is-active" : ""}`}>
+                                  {code.active ? "Actif" : "Inactif"}
+                                </span>
+                              </td>
+                              <td>{code.note || "—"}</td>
+                              <td>{code.used_count ?? 0}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="ghost compact"
+                                  onClick={() => toggleInviteCodeActive(code)}
+                                >
+                                  {code.active ? "Désactiver" : "Activer"}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <form className="admin-generate-form" onSubmit={generateInviteCode}>
+                    <input
+                      placeholder="Note (optionnel)"
+                      value={adminNoteDraft}
+                      onChange={(event) => setAdminNoteDraft(event.target.value)}
+                    />
+                    <button className="primary" type="submit" disabled={adminGenerating}>
+                      {adminGenerating ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+                      Générer un code
+                    </button>
+                  </form>
+                </div>
+              </>
             )}
           </section>
         </div>
