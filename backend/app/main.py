@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
 from app.cities import canonical_city_name
+from app.cities import city_slug
 from app.config import settings
 from app.crawlers.base import CrawledListing
 from app.crawlers.bien_ici import BienIciCrawler
@@ -61,6 +62,7 @@ from app.schemas import (
     NaturalSearchProfileUpdate,
     PendingMatchPairOut,
     PriceHistoryPointOut,
+    ProtectedSourceTargetOut,
     ScoreFactor,
     SemanticDedupCandidateOut,
     SemanticDedupDecisionOut,
@@ -832,6 +834,79 @@ async def enrich_all(
 
 
 MAX_INGEST_BATCH_SIZE = 500
+
+PROTECTED_SOURCE_CITY_METADATA = {
+    "Frejus": {"postal_code": "83600", "seloger_department": "83"},
+    "Saint-Raphael": {"postal_code": "83700", "seloger_department": "83"},
+    "Cannes": {"postal_code": "06400", "seloger_department": "06"},
+    "Mougins": {"postal_code": "06250", "seloger_department": "06"},
+    "Mandelieu-La-Napoule": {"postal_code": "06210", "seloger_department": "06"},
+    "Theoule-Sur-Mer": {"postal_code": "06590", "seloger_department": "06"},
+    "Sainte-Maxime": {"postal_code": "83120", "seloger_department": "83"},
+    "Saint-Tropez": {"postal_code": "83990", "seloger_department": "83"},
+    "Roquebrune-Sur-Argens": {"postal_code": "83520", "seloger_department": "83"},
+    "Puget-Sur-Argens": {"postal_code": "83480", "seloger_department": "83"},
+}
+
+
+@app.get("/api/ingest/protected-source-targets", response_model=list[ProtectedSourceTargetOut])
+def protected_source_targets(
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[ProtectedSourceTargetOut]:
+    """Active city targets for external browser scrapers such as OpenClaw.
+
+    Green-Acres/Bien'ici run inside the backend and already read active
+    SearchProfile rows. PAP/SeLoger run outside the backend, so they need a
+    secret-only discovery endpoint instead of hardcoded city lists.
+    """
+    require_crawl_secret(x_crawl_secret)
+
+    profiles = list(
+        db.scalars(
+            select(SearchProfile)
+            .where(SearchProfile.enabled == True)  # noqa: E712
+            .order_by(SearchProfile.city)
+        ).all()
+    )
+    by_city: dict[str, list[SearchProfile]] = defaultdict(list)
+    for profile in profiles:
+        city = canonical_city_name(profile.city)
+        if city:
+            by_city[city].append(profile)
+
+    targets: list[ProtectedSourceTargetOut] = []
+    for city, city_profiles in sorted(by_city.items()):
+        metadata = PROTECTED_SOURCE_CITY_METADATA.get(city, {})
+        slug = city_slug(city)
+        postal_code = metadata.get("postal_code")
+        seloger_department = metadata.get("seloger_department")
+        targets.append(
+            ProtectedSourceTargetOut(
+                city=city,
+                postal_code=postal_code,
+                max_price_eur=min(
+                    (profile.max_price_eur for profile in city_profiles if profile.max_price_eur is not None),
+                    default=None,
+                ),
+                min_living_area_m2=max(
+                    (profile.min_living_area_m2 for profile in city_profiles if profile.min_living_area_m2 is not None),
+                    default=None,
+                ),
+                min_land_area_m2=max(
+                    (profile.min_land_area_m2 for profile in city_profiles if profile.min_land_area_m2 is not None),
+                    default=None,
+                ),
+                min_bedrooms=max(
+                    (profile.min_bedrooms for profile in city_profiles if profile.min_bedrooms is not None),
+                    default=None,
+                ),
+                pap_slug=f"{slug}-{postal_code}" if postal_code else slug,
+                seloger_slug=f"{slug}-{postal_code}" if postal_code else None,
+                seloger_department=seloger_department,
+            )
+        )
+    return targets
 
 
 @app.post("/api/ingest/listings")

@@ -320,3 +320,15 @@ class IngestListingIn(BaseModel):
 class IngestBatchIn(BaseModel):
     source: str
     items: list[IngestListingIn]
+
+
+class ProtectedSourceTargetOut(BaseModel):
+    city: str
+    postal_code: str | None = None
+    max_price_eur: int | None = None
+    min_living_area_m2: int | None = None
+    min_land_area_m2: int | None = None
+    min_bedrooms: int | None = None
+    pap_slug: str | None = None
+    seloger_slug: str | None = None
+    seloger_department: str | None = None

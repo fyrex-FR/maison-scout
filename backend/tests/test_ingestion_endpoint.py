@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.db import Base, get_db
 from app.main import app
-from app.models import Listing, ListingSource, PriceHistory
+from app.models import Listing, ListingSource, PriceHistory, SearchProfile, User
 
 
 def _client():
@@ -58,6 +58,57 @@ def test_ingest_listings_requires_crawl_secret():
     client, _SessionLocal = _client()
     response = client.post("/api/ingest/listings", json={"source": "pap", "items": [_item()]})
     assert response.status_code == 401
+
+
+def test_protected_source_targets_require_crawl_secret():
+    client, _SessionLocal = _client()
+    response = client.get("/api/ingest/protected-source-targets")
+    assert response.status_code == 401
+
+
+def test_protected_source_targets_return_active_search_cities_and_criteria():
+    client, SessionLocal = _client()
+    with SessionLocal() as db:
+        user = User(email="xavier@example.test", display_name="Xavier", password_hash="hash")
+        db.add(user)
+        db.flush()
+        db.add(
+            SearchProfile(
+                user_id=user.id,
+                name="Frejus",
+                city="Fréjus",
+                enabled=True,
+                max_price_eur=900000,
+                min_living_area_m2=120,
+                min_land_area_m2=500,
+                min_bedrooms=4,
+            )
+        )
+        db.add(
+            SearchProfile(
+                user_id=user.id,
+                name="Disabled",
+                city="Cannes",
+                enabled=False,
+            )
+        )
+        db.commit()
+
+    response = client.get("/api/ingest/protected-source-targets", headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "city": "Frejus",
+            "postal_code": "83600",
+            "max_price_eur": 900000,
+            "min_living_area_m2": 120,
+            "min_land_area_m2": 500,
+            "min_bedrooms": 4,
+            "pap_slug": "frejus-83600",
+            "seloger_slug": "frejus-83600",
+            "seloger_department": "83",
+        }
+    ]
 
 
 def test_ingest_listings_creates_listings_with_source_photos_and_geo():
