@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class ListingSourceOut(BaseModel):
@@ -143,6 +143,10 @@ class SourceStatusOut(BaseModel):
     next_expected_at: datetime | None
     overdue: bool
     job_status: str | None = None
+
+    @field_serializer("last_run_at", "next_expected_at", when_used="json")
+    def serialize_datetime(self, value: datetime | None) -> str | None:
+        return value.isoformat() if value is not None else None
 
 
 class CrawlJobOut(BaseModel):
