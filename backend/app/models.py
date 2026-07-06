@@ -227,6 +227,31 @@ class CrawlRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class CrawlJob(Base):
+    """A unit of crawl work owned by the backend control plane.
+
+    See app/crawl_jobs.py for the why: the backend now decides *what* needs
+    crawling (this table), while *where* it runs stays split -- "backend"
+    jobs execute in-process (httpx crawlers), "openclaw" jobs are claimed and
+    reported by the external browser worker via the crawl-secret job
+    endpoints (pull model, since OpenClaw can't be pushed to directly).
+    """
+
+    __tablename__ = "crawl_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(80), index=True)
+    executor: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    requested_by: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    found_count: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+    crawl_run_id: Mapped[int | None] = mapped_column(ForeignKey("crawl_runs.id"))
+
+
 class CityMarketStat(Base):
     """Cached DVF (real-sale, Etalab) market stats for a canonical city.
 

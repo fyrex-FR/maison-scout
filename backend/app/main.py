@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -5,15 +6,16 @@ import json
 import secrets
 import statistics
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
 from app.cities import CITY_METADATA, canonical_city_name
 from app.cities import city_slug
 from app.config import settings
+from app.crawl_jobs import claim_job, enqueue_jobs, process_backend_jobs, report_job
 from app.crawlers.base import CrawledListing
 from app.crawlers.bien_ici import BienIciCrawler
 from app.crawlers.demo import DemoCrawler
@@ -29,6 +31,7 @@ from app.lifecycle import refresh_off_market_status
 from app.models import (
     CityMarketStat,
     ComparisonItem,
+    CrawlJob,
     CrawlRun,
     InviteCode,
     Listing,
@@ -47,6 +50,9 @@ from app.schemas import (
     AIAnalysisCandidateOut,
     AuthRequest,
     AuthResponse,
+    CrawlJobOut,
+    CrawlJobReportIn,
+    CrawlJobRequestIn,
     CrawlRunOut,
     InviteCodeCreate,
     InviteCodeOut,
@@ -797,27 +803,150 @@ async def crawl_bien_ici(
     return {"status": run.status, "found_count": run.found_count}
 
 
-@app.post("/api/crawl/all")
-async def crawl_all(
+def _requested_by(authorization: str | None, x_crawl_secret: str | None) -> str:
+    """Best-effort human/machine identity for a CrawlJob.requested_by.
+
+    Mirrors the two ways require_crawl_access accepts a caller: a valid user
+    bearer token (-> that user's email) or the machine secret (-> a fixed
+    "crawl-secret" label, since there's no per-caller identity there).
+    """
+    if authorization and authorization.lower().startswith("bearer "):
+        try:
+            payload = parse_token(authorization.split(" ", 1)[1])
+            email = payload.get("email") if isinstance(payload, dict) else None
+            if email:
+                return email
+        except HTTPException:
+            pass
+    return "crawl-secret"
+
+
+def _run_backend_jobs_in_background(bind) -> None:
+    """BackgroundTask entrypoint: opens its own DB session on the given bind.
+
+    The request-scoped `db` session (from Depends(get_db)) is closed as soon
+    as the response is sent, so a task that keeps running after the response
+    must not reuse it -- it opens a fresh session instead. It's bound to
+    `bind` (the request session's own engine, via `db.get_bind()`) rather
+    than importing app.db.SessionLocal directly, so this keeps working under
+    the test suite's per-test engine override (app.dependency_overrides) and
+    not just against the real production engine.
+    """
+    session_factory = sessionmaker(bind=bind)
+    with session_factory() as db:
+        asyncio.run(process_backend_jobs(db))
+
+
+@app.post("/api/crawl/request")
+async def crawl_request(
+    payload: CrawlJobRequestIn | None = None,
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
     x_crawl_secret: str | None = Header(default=None),
-) -> dict[str, int | str | list[dict[str, int | str]]]:
+) -> dict:
+    """Enqueue crawl jobs for the requested sources (default: all sources).
+
+    Replaces "trigger and wait" with "enqueue and let each executor pick up
+    its own work": backend-executor jobs are processed right away via a
+    FastAPI BackgroundTask (the response returns immediately, the httpx
+    crawls run after), openclaw-executor jobs stay "pending" until the
+    external worker claims them through GET/POST /api/crawl/jobs/*.
+    """
     require_crawl_access(authorization, x_crawl_secret)
-    cities = active_search_cities(db)
-    crawlers = [GreenAcresCrawler.from_cities(cities), BienIciCrawler.from_cities(cities)]
-    runs = []
-    for crawler in crawlers:
-        run = await run_crawler(db, crawler)
-        runs.append({"source": run.source, "status": run.status, "found_count": run.found_count})
-    lifecycle_result = refresh_off_market_status(db)
-    db.commit()
+    requested_by = _requested_by(authorization, x_crawl_secret)
+    sources = payload.sources if payload is not None else None
+    result = enqueue_jobs(db, sources, requested_by)
+    background_tasks.add_task(_run_backend_jobs_in_background, db.get_bind())
     return {
-        "status": "ok" if all(run["status"] == "ok" for run in runs) else "partial",
-        "found_count": sum(int(run["found_count"]) for run in runs),
-        "runs": runs,
-        "marked_off_market": lifecycle_result["marked_off_market"],
+        "created": [CrawlJobOut.model_validate(job).model_dump(mode="json") for job in result["created"]],
+        "skipped": result["skipped"],
+        "unknown": result["unknown"],
     }
+
+
+@app.post("/api/crawl/all")
+async def crawl_all(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict:
+    """Alias for POST /api/crawl/request with no source filter (all sources).
+
+    Kept as its own route because the server cron (every 6h, see
+    docs/PROJECT_CONTEXT.md) already calls this exact path with
+    X-Crawl-Secret; this alias means the cron now feeds the OpenClaw job
+    queue too, with zero changes on the cron side.
+
+    Response shape changed: this used to run the httpx crawlers synchronously
+    and return their results (including `marked_off_market`) in the same
+    response. Now the backend jobs run in a BackgroundTask *after* the
+    response is sent, so `marked_off_market` is no longer in this response --
+    it happens at the end of the background pass (see
+    app.crawl_jobs.process_backend_jobs) and can be observed afterwards via
+    GET /api/crawl-runs or GET /api/sources/status.
+    """
+    require_crawl_access(authorization, x_crawl_secret)
+    requested_by = _requested_by(authorization, x_crawl_secret)
+    result = enqueue_jobs(db, None, requested_by)
+    background_tasks.add_task(_run_backend_jobs_in_background, db.get_bind())
+    return {
+        "created": [CrawlJobOut.model_validate(job).model_dump(mode="json") for job in result["created"]],
+        "skipped": result["skipped"],
+        "unknown": result["unknown"],
+    }
+
+
+@app.get("/api/crawl/jobs", response_model=list[CrawlJobOut])
+def list_crawl_jobs(
+    executor: str = "openclaw",
+    status: str = "pending",
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[CrawlJob]:
+    require_crawl_secret(x_crawl_secret)
+    stmt = (
+        select(CrawlJob)
+        .where(CrawlJob.executor == executor, CrawlJob.status == status)
+        .order_by(CrawlJob.created_at)
+    )
+    return list(db.scalars(stmt).all())
+
+
+@app.post("/api/crawl/jobs/{job_id}/claim", response_model=CrawlJobOut)
+def claim_crawl_job(
+    job_id: int,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> CrawlJob:
+    require_crawl_secret(x_crawl_secret)
+    job = claim_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=409, detail="Job not claimable")
+    return job
+
+
+@app.post("/api/crawl/jobs/{job_id}/report", response_model=CrawlJobOut)
+def report_crawl_job(
+    job_id: int,
+    payload: CrawlJobReportIn,
+    x_crawl_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> CrawlJob:
+    require_crawl_secret(x_crawl_secret)
+    if payload.status not in ("done", "error"):
+        raise HTTPException(status_code=422, detail="status must be 'done' or 'error'")
+    job = report_job(
+        db,
+        job_id,
+        status=payload.status,
+        found_count=payload.found_count,
+        error=payload.error,
+    )
+    if job is None:
+        raise HTTPException(status_code=409, detail="Job is not running")
+    return job
 
 
 @app.post("/api/enrich/all")
@@ -1391,10 +1520,25 @@ def list_source_status(user: User = Depends(get_current_user), db: Session = Dep
         if existing is None or (run.finished_at or run.started_at) >= (existing.finished_at or existing.started_at):
             latest_run_by_source[run.source] = run
 
-    sources = set(counts_by_source) | set(latest_run_by_source)
     now = datetime.utcnow()
     grace = timedelta(minutes=45)
     interval = timedelta(hours=settings.crawl_interval_hours)
+
+    # One grouped query for "is there an active job for this source" rather
+    # than a per-source lookup. "running" wins over "pending" when a source
+    # somehow has both (shouldn't normally happen given the anti-duplicate
+    # guard in enqueue_jobs, but a job can also be claimed by a stale-job
+    # cleanup mid-request).
+    job_status_by_source: dict[str, str] = {}
+    for job_source, job_status in db.execute(
+        select(CrawlJob.source, CrawlJob.status).where(CrawlJob.status.in_(["pending", "running"]))
+    ):
+        if job_status_by_source.get(job_source) != "running":
+            job_status_by_source[job_source] = job_status
+
+    # A source with an active job but no run and no listing yet (e.g. a brand
+    # new source just enqueued) must still show up on the dashboard.
+    sources = set(counts_by_source) | set(latest_run_by_source) | set(job_status_by_source)
 
     results: list[SourceStatusOut] = []
     for source in sources:
@@ -1410,6 +1554,7 @@ def list_source_status(user: User = Depends(get_current_user), db: Session = Dep
                     last_error=None,
                     next_expected_at=None,
                     overdue=False,
+                    job_status=job_status_by_source.get(source),
                 )
             )
             continue
@@ -1428,6 +1573,7 @@ def list_source_status(user: User = Depends(get_current_user), db: Session = Dep
                 last_error=run.error,
                 next_expected_at=next_expected_at.replace(tzinfo=timezone.utc),
                 overdue=overdue,
+                job_status=job_status_by_source.get(source),
             )
         )
 

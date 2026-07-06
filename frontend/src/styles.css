@@ -1634,6 +1634,31 @@ h2 {
   background: var(--color-low);
 }
 
+.sources-strip-item.is-scanning {
+  border-color: rgba(47, 102, 144, 0.4);
+}
+
+.sources-strip-item.is-scanning .status-dot {
+  background: var(--color-info);
+  animation: status-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sources-strip-item.is-scanning .status-dot {
+    animation: none;
+  }
+}
+
 .sources-strip-next {
   color: var(--color-ink-faint);
   font-size: 12px;

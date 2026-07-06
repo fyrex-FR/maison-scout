@@ -142,6 +142,33 @@ class SourceStatusOut(BaseModel):
     last_error: str | None
     next_expected_at: datetime | None
     overdue: bool
+    job_status: str | None = None
+
+
+class CrawlJobOut(BaseModel):
+    id: int
+    source: str
+    executor: str
+    status: str
+    requested_by: str | None
+    created_at: datetime
+    claimed_at: datetime | None
+    finished_at: datetime | None
+    found_count: int | None
+    error: str | None
+    crawl_run_id: int | None
+
+    model_config = {"from_attributes": True}
+
+
+class CrawlJobRequestIn(BaseModel):
+    sources: list[str] | None = None
+
+
+class CrawlJobReportIn(BaseModel):
+    status: str
+    found_count: int | None = None
+    error: str | None = None
 
 
 class AuthRequest(BaseModel):

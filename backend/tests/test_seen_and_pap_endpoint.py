@@ -158,26 +158,28 @@ def test_crawl_pap_succeeds_with_crawl_secret(monkeypatch):
     assert payload["found_count"] == 0
 
 
-def test_crawl_pap_not_included_in_crawl_all(monkeypatch):
-    """PAP is opt-in only: /api/crawl/all must not trigger it.
-
-    We can't easily assert a negative via network calls, so instead we assert
-    that /api/crawl/all's response never reports a "pap" source run -- it only
-    ever contains green-acres and bien-ici, regardless of PapCrawler outcome.
+def test_crawl_pap_enqueued_as_openclaw_job_by_crawl_all(monkeypatch):
+    """PAP is behind Cloudflare and can't run in-process: /api/crawl/all now
+    enqueues it as an "openclaw"-executor CrawlJob (left pending for the
+    external browser worker to claim -- see app/crawl_jobs.py) instead of
+    triggering PapCrawler directly or excluding it outright.
     """
     from app.crawlers.bien_ici import BienIciCrawler
     from app.crawlers.green_acres import GreenAcresCrawler
+    from app.crawlers.paruvendu import ParuVenduCrawler
 
     async def _fake_crawl(self):
         return []
 
     monkeypatch.setattr(GreenAcresCrawler, "crawl", _fake_crawl)
     monkeypatch.setattr(BienIciCrawler, "crawl", _fake_crawl)
+    monkeypatch.setattr(ParuVenduCrawler, "crawl", _fake_crawl)
 
     client, _SessionLocal = _client()
     response = client.post("/api/crawl/all", headers={"X-Crawl-Secret": "test-secret"})
     assert response.status_code == 200
     payload = response.json()
-    sources = [run["source"] for run in payload["runs"]]
-    assert "pap" not in sources
-    assert set(sources) == {"green-acres", "bien-ici"}
+    pap_jobs = [job for job in payload["created"] if job["source"] == "pap"]
+    assert len(pap_jobs) == 1
+    assert pap_jobs[0]["executor"] == "openclaw"
+    assert pap_jobs[0]["status"] == "pending"

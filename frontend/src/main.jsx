@@ -476,11 +476,44 @@ function App() {
     setViewMode("list");
   }
 
+  async function refreshSourcesStatus() {
+    const response = await fetch(`${API_URL}/api/sources/status`, { headers: authHeaders() });
+    if (!response.ok) return null;
+    const statuses = await response.json();
+    setSourcesStatus(statuses);
+    return statuses;
+  }
+
   async function runAllCrawlers() {
     setLoading(true);
-    await fetch(`${API_URL}/api/crawl/all`, { method: "POST", headers: authHeaders() });
-    await loadListings();
-    setLoading(false);
+    try {
+      const response = await fetch(`${API_URL}/api/crawl/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({}),
+      });
+      if (response.status === 404) {
+        // Backend pas encore à jour : ancien scan synchrone.
+        await fetch(`${API_URL}/api/crawl/all`, { method: "POST", headers: authHeaders() });
+        await loadListings();
+        return;
+      }
+      // Les jobs tournent en tâche de fond (backend) ou attendent leur
+      // exécuteur (OpenClaw) : on suit l'avancement via le statut des sources,
+      // puis on recharge. Au-delà de 2 min on rend la main — le bandeau
+      // continue d'afficher les jobs en attente.
+      const deadline = Date.now() + 2 * 60 * 1000;
+      let active = true;
+      while (active && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const statuses = await refreshSourcesStatus();
+        if (!statuses) break;
+        active = statuses.some((st) => st.job_status);
+      }
+      await loadListings();
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function setListingStatus(id, nextStatus, note = undefined) {
@@ -1342,16 +1375,23 @@ function App() {
               ? sourcesStatus
               : aggregatedSources.map((source) => ({ source }))
             ).map((st) => {
-              const tone = st.last_status === "error" ? "is-error" : st.overdue ? "is-overdue" : "";
-              const tooltip = st.last_run_at
-                ? [
-                    `Dernier scan ${relativeTimeFr(st.last_run_at)} (${st.last_found_count ?? "?"} annonces vues)`,
-                    st.last_status === "error" ? `En erreur : ${st.last_error || "erreur inconnue"}` : null,
-                    st.next_expected_at ? `Prochain passage estimé ~${formatClockFr(st.next_expected_at)}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : `${sourceMeta(st.source).label} — pas encore de scan enregistré`;
+              const tone = st.job_status
+                ? "is-scanning"
+                : st.last_status === "error"
+                  ? "is-error"
+                  : st.overdue
+                    ? "is-overdue"
+                    : "";
+              const tooltip = [
+                st.job_status === "running" ? "Scan en cours" : st.job_status === "pending" ? "Scan programmé, en attente d'exécuteur" : null,
+                st.last_run_at
+                  ? `Dernier scan ${relativeTimeFr(st.last_run_at)} (${st.last_found_count ?? "?"} annonces vues)`
+                  : "Pas encore de scan enregistré",
+                st.last_status === "error" && !st.job_status ? `En erreur : ${st.last_error || "erreur inconnue"}` : null,
+                st.next_expected_at && !st.job_status ? `Prochain passage estimé ~${formatClockFr(st.next_expected_at)}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
               return (
                 <span className={`sources-strip-item ${tone}`} key={st.source} title={tooltip}>
                   <SourceLogo source={st.source} size={16} />
@@ -1359,10 +1399,14 @@ function App() {
                   {typeof st.listings_count === "number" && (
                     <span className="sources-strip-count">{st.listings_count}</span>
                   )}
-                  {st.last_run_at && (
+                  {(st.job_status || st.last_run_at) && (
                     <span className="sources-strip-freshness">
                       <span className="status-dot" aria-hidden="true" />
-                      {relativeTimeFr(st.last_run_at)}
+                      {st.job_status === "running"
+                        ? "scan en cours…"
+                        : st.job_status === "pending"
+                          ? "programmé…"
+                          : relativeTimeFr(st.last_run_at)}
                     </span>
                   )}
                 </span>

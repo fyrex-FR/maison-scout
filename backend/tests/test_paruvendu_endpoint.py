@@ -49,13 +49,11 @@ def test_crawl_paruvendu_succeeds_with_crawl_secret(monkeypatch):
     assert payload["found_count"] == 0
 
 
-def test_crawl_paruvendu_not_included_in_crawl_all(monkeypatch):
-    """ParuVendu is opt-in only: /api/crawl/all must not trigger it.
-
-    We can't easily assert a negative via network calls, so instead we assert
-    that /api/crawl/all's response never reports a "paruvendu" source run --
-    it only ever contains green-acres and bien-ici, regardless of
-    ParuVenduCrawler outcome.
+def test_crawl_paruvendu_included_in_crawl_all_job_queue(monkeypatch):
+    """ParuVendu was validated in prod (191 listings) and now runs in the
+    normal backend rotation: /api/crawl/all must enqueue a "backend"-executor
+    job for it (fed to the in-process job queue -- see app/crawl_jobs.py),
+    alongside green-acres and bien-ici.
     """
     from app.crawlers.bien_ici import BienIciCrawler
     from app.crawlers.green_acres import GreenAcresCrawler
@@ -65,11 +63,12 @@ def test_crawl_paruvendu_not_included_in_crawl_all(monkeypatch):
 
     monkeypatch.setattr(GreenAcresCrawler, "crawl", _fake_crawl)
     monkeypatch.setattr(BienIciCrawler, "crawl", _fake_crawl)
+    monkeypatch.setattr(ParuVenduCrawler, "crawl", _fake_crawl)
 
     client, _SessionLocal = _client()
     response = client.post("/api/crawl/all", headers={"X-Crawl-Secret": "test-secret"})
     assert response.status_code == 200
     payload = response.json()
-    sources = [run["source"] for run in payload["runs"]]
-    assert "paruvendu" not in sources
-    assert set(sources) == {"green-acres", "bien-ici"}
+    created_sources = {job["source"] for job in payload["created"]}
+    assert "paruvendu" in created_sources
+    assert {"green-acres", "bien-ici", "paruvendu"} <= created_sources
