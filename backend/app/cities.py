@@ -23,6 +23,23 @@ _CITY_ALIASES: dict[str, str] = {
     "aulnay sous bois": "Aulnay Sous Bois",
 }
 
+# Single source of truth for per-city metadata needed to build search URLs /
+# query params for external sources (protected sources scraped by OpenClaw,
+# and in-repo crawlers like ParuVendu that require a postal code in their
+# search URL slug). Keyed by canonical city name (see canonical_city_name).
+CITY_METADATA: dict[str, dict[str, str]] = {
+    "Frejus": {"postal_code": "83600", "seloger_department": "83"},
+    "Saint-Raphael": {"postal_code": "83700", "seloger_department": "83"},
+    "Cannes": {"postal_code": "06400", "seloger_department": "06"},
+    "Mougins": {"postal_code": "06250", "seloger_department": "06"},
+    "Mandelieu-La-Napoule": {"postal_code": "06210", "seloger_department": "06"},
+    "Theoule-Sur-Mer": {"postal_code": "06590", "seloger_department": "06"},
+    "Sainte-Maxime": {"postal_code": "83120", "seloger_department": "83"},
+    "Saint-Tropez": {"postal_code": "83990", "seloger_department": "83"},
+    "Roquebrune-Sur-Argens": {"postal_code": "83520", "seloger_department": "83"},
+    "Puget-Sur-Argens": {"postal_code": "83480", "seloger_department": "83"},
+}
+
 
 def _strip_accents(value: str) -> str:
     """Remove diacritics, e.g. 'é' -> 'e'."""

@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_token, get_current_user, hash_password, parse_token, verify_password
-from app.cities import canonical_city_name
+from app.cities import CITY_METADATA, canonical_city_name
 from app.cities import city_slug
 from app.config import settings
 from app.crawlers.base import CrawledListing
@@ -19,6 +19,7 @@ from app.crawlers.bien_ici import BienIciCrawler
 from app.crawlers.demo import DemoCrawler
 from app.crawlers.green_acres import GreenAcresCrawler
 from app.crawlers.pap import PapCrawler
+from app.crawlers.paruvendu import ParuVenduCrawler
 from app.db import get_db
 from app.enrichment.dvf import refresh_city_stats
 from app.enrichment.georisques import enrich_listings_risks
@@ -770,6 +771,19 @@ async def crawl_pap(
     return {"status": run.status, "found_count": run.found_count}
 
 
+@app.post("/api/crawl/paruvendu")
+# opt-in: pas encore dans /crawl/all ni le cron -- a valider manuellement d'abord
+async def crawl_paruvendu(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_crawl_secret: str | None = Header(default=None),
+) -> dict[str, int | str]:
+    require_crawl_access(authorization, x_crawl_secret)
+    cities = active_search_cities(db)
+    run: CrawlRun = await run_crawler(db, ParuVenduCrawler.from_cities(cities))
+    return {"status": run.status, "found_count": run.found_count}
+
+
 @app.post("/api/crawl/bien-ici")
 async def crawl_bien_ici(
     db: Session = Depends(get_db),
@@ -835,18 +849,10 @@ async def enrich_all(
 
 MAX_INGEST_BATCH_SIZE = 500
 
-PROTECTED_SOURCE_CITY_METADATA = {
-    "Frejus": {"postal_code": "83600", "seloger_department": "83"},
-    "Saint-Raphael": {"postal_code": "83700", "seloger_department": "83"},
-    "Cannes": {"postal_code": "06400", "seloger_department": "06"},
-    "Mougins": {"postal_code": "06250", "seloger_department": "06"},
-    "Mandelieu-La-Napoule": {"postal_code": "06210", "seloger_department": "06"},
-    "Theoule-Sur-Mer": {"postal_code": "06590", "seloger_department": "06"},
-    "Sainte-Maxime": {"postal_code": "83120", "seloger_department": "83"},
-    "Saint-Tropez": {"postal_code": "83990", "seloger_department": "83"},
-    "Roquebrune-Sur-Argens": {"postal_code": "83520", "seloger_department": "83"},
-    "Puget-Sur-Argens": {"postal_code": "83480", "seloger_department": "83"},
-}
+# Backward-compatible alias: this table now lives in app.cities as
+# CITY_METADATA (single source of truth, also used by the ParuVendu crawler
+# to build its city+postal-code search URL slugs).
+PROTECTED_SOURCE_CITY_METADATA = CITY_METADATA
 
 
 @app.get("/api/ingest/protected-source-targets", response_model=list[ProtectedSourceTargetOut])

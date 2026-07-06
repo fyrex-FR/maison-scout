@@ -1,6 +1,6 @@
 import pytest
 
-from app.cities import canonical_city_name, city_slug
+from app.cities import CITY_METADATA, canonical_city_name, city_slug
 
 
 @pytest.mark.parametrize(
@@ -58,3 +58,17 @@ def test_city_slug_has_no_accents_or_uppercase():
     slug = city_slug("Cannes-La-Bocca")
     assert slug == slug.lower()
     assert all(char.isalnum() or char == "-" for char in slug)
+
+
+def test_city_metadata_is_keyed_by_canonical_city_name():
+    for city in CITY_METADATA:
+        assert canonical_city_name(city) == city
+
+
+def test_city_metadata_known_cities_have_postal_code_and_department():
+    frejus = CITY_METADATA["Frejus"]
+    assert frejus["postal_code"] == "83600"
+    assert frejus["seloger_department"] == "83"
+
+    saint_raphael = CITY_METADATA["Saint-Raphael"]
+    assert saint_raphael["postal_code"] == "83700"
