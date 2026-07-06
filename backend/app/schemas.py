@@ -125,6 +125,25 @@ class CrawlRunOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SourceStatusOut(BaseModel):
+    """Per-source freshness summary for GET /api/sources/status.
+
+    Combines `crawl_runs` (last collection attempt, whatever produced it --
+    an in-repo crawler or an external OpenClaw ingestion) with the
+    `listing_sources` row count, so the frontend can show a single
+    "is this source healthy / stale?" panel without querying per source.
+    """
+
+    source: str
+    listings_count: int
+    last_run_at: datetime | None
+    last_status: str | None
+    last_found_count: int | None
+    last_error: str | None
+    next_expected_at: datetime | None
+    overdue: bool
+
+
 class AuthRequest(BaseModel):
     email: str
     password: str

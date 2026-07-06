@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     crawl_secret: str = ""
     admin_emails: str = ""
     off_market_after_hours: int = 48
+    # Every crawl/ingestion cron on this project runs on a 6h cycle (see
+    # docs/PROJECT_CONTEXT.md); used by /api/sources/status to estimate the
+    # next expected pass per source from its last crawl_runs row.
+    crawl_interval_hours: int = 6
 
     @property
     def cors_origin_list(self) -> list[str]:

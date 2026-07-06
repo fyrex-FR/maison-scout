@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import secrets
@@ -34,6 +34,7 @@ from app.models import (
     Listing,
     ListingAIAnalysis,
     ListingMatchScore,
+    ListingSource,
     NaturalSearchProfile,
     PriceHistory,
     SearchProfile,
@@ -70,6 +71,7 @@ from app.schemas import (
     SemanticDedupDecisionRequest,
     SearchProfileCreate,
     SearchProfileOut,
+    SourceStatusOut,
     UserOut,
 )
 from app.semantic_dedup import merge_listings, reject_pair, semantic_candidate_pairs
@@ -1348,6 +1350,89 @@ def require_crawl_secret(x_crawl_secret: str | None) -> None:
 def list_crawl_runs(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CrawlRun]:
     stmt = select(CrawlRun).order_by(CrawlRun.started_at.desc()).limit(20)
     return list(db.scalars(stmt).all())
+
+
+@app.get("/api/sources/status", response_model=list[SourceStatusOut])
+def list_source_status(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[SourceStatusOut]:
+    """Per-source freshness dashboard: last crawl_runs row + listing_sources count.
+
+    `crawl_runs` is written both by in-repo crawlers and by external OpenClaw
+    ingestions (see app/ingest.py), so it's a reliable single source of truth
+    for "when did this source last run" regardless of who ran it. `demo` is
+    a synthetic fixture source and is excluded. Uses two constant-shaped
+    queries (a GROUP BY count and a correlated-subquery join for the latest
+    run per source) instead of one query per source, so this stays O(1) in
+    round-trips as sources grow.
+    """
+    counts_stmt = (
+        select(ListingSource.source, func.count().label("listings_count"))
+        .where(ListingSource.source != "demo")
+        .group_by(ListingSource.source)
+    )
+    counts_by_source: dict[str, int] = {row.source: row.listings_count for row in db.execute(counts_stmt)}
+
+    latest_started_at = (
+        select(CrawlRun.source, func.max(CrawlRun.started_at).label("started_at"))
+        .where(CrawlRun.source != "demo")
+        .group_by(CrawlRun.source)
+        .subquery()
+    )
+    latest_runs_stmt = select(CrawlRun).join(
+        latest_started_at,
+        (CrawlRun.source == latest_started_at.c.source) & (CrawlRun.started_at == latest_started_at.c.started_at),
+    )
+    latest_run_by_source: dict[str, CrawlRun] = {}
+    for run in db.scalars(latest_runs_stmt):
+        # If two runs for the same source share the exact same started_at
+        # (unlikely, but not impossible with second-resolution timestamps),
+        # keep the one with the latest finished_at/id so the "latest" pick
+        # is deterministic.
+        existing = latest_run_by_source.get(run.source)
+        if existing is None or (run.finished_at or run.started_at) >= (existing.finished_at or existing.started_at):
+            latest_run_by_source[run.source] = run
+
+    sources = set(counts_by_source) | set(latest_run_by_source)
+    now = datetime.utcnow()
+    grace = timedelta(minutes=45)
+    interval = timedelta(hours=settings.crawl_interval_hours)
+
+    results: list[SourceStatusOut] = []
+    for source in sources:
+        run = latest_run_by_source.get(source)
+        if run is None:
+            results.append(
+                SourceStatusOut(
+                    source=source,
+                    listings_count=counts_by_source.get(source, 0),
+                    last_run_at=None,
+                    last_status=None,
+                    last_found_count=None,
+                    last_error=None,
+                    next_expected_at=None,
+                    overdue=False,
+                )
+            )
+            continue
+
+        last_run_at = run.finished_at if run.finished_at is not None else run.started_at
+        next_expected_at = run.started_at + interval
+        overdue = now > next_expected_at + grace
+
+        results.append(
+            SourceStatusOut(
+                source=source,
+                listings_count=counts_by_source.get(source, 0),
+                last_run_at=last_run_at.replace(tzinfo=timezone.utc),
+                last_status=run.status,
+                last_found_count=run.found_count,
+                last_error=run.error,
+                next_expected_at=next_expected_at.replace(tzinfo=timezone.utc),
+                overdue=overdue,
+            )
+        )
+
+    results.sort(key=lambda item: item.listings_count, reverse=True)
+    return results
 
 
 @app.get("/api/admin/users", response_model=list[AdminUserOut])

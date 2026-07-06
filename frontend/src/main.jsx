@@ -106,6 +106,29 @@ function daysOnMarketLabel(listing) {
   return listing.off_market ? `Retirée après ${days} ${unit}` : `Sur le marché depuis ${days} ${unit}`;
 }
 
+function relativeTimeFr(isoString) {
+  if (!isoString) return null;
+  const then = new Date(isoString).getTime();
+  if (!Number.isFinite(then)) return null;
+  const minutes = Math.round((Date.now() - then) / 60000);
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  const days = Math.round(hours / 24);
+  return `il y a ${days} j`;
+}
+
+function formatClockFr(isoString) {
+  if (!isoString) return null;
+  const date = new Date(isoString);
+  if (!Number.isFinite(date.getTime())) return null;
+  const time = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(date).replace(":", "h");
+  const sameDay = date.toDateString() === new Date().toDateString();
+  if (sameDay) return time;
+  return `${new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).format(date)} ${time}`;
+}
+
 // Identité visuelle des portails agrégés (favicons bundlés en local : pas de
 // hotlink qui casse ou qui fuite la navigation vers un tiers).
 const SOURCE_META = {
@@ -250,6 +273,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [listings, setListings] = useState([]);
   const [runs, setRuns] = useState([]);
+  const [sourcesStatus, setSourcesStatus] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [naturalProfiles, setNaturalProfiles] = useState([]);
   const [naturalPromptDraft, setNaturalPromptDraft] = useState("");
@@ -309,15 +333,23 @@ function App() {
       if (standardFilters.include_off_market) {
         listingsUrl.searchParams.set("include_off_market", "true");
       }
-      const [meResponse, listingsResponse, runsResponse, profilesResponse, comparisonResponse, naturalProfilesResponse] =
-        await Promise.all([
-          fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
-          fetch(listingsUrl, { headers: authHeaders() }),
-          fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
-          fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
-          fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
-          fetch(`${API_URL}/api/natural-search-profiles`, { headers: authHeaders() }),
-        ]);
+      const [
+        meResponse,
+        listingsResponse,
+        runsResponse,
+        profilesResponse,
+        comparisonResponse,
+        naturalProfilesResponse,
+        sourcesStatusResponse,
+      ] = await Promise.all([
+        fetch(`${API_URL}/api/me`, { headers: authHeaders() }),
+        fetch(listingsUrl, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/crawl-runs`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/search-profiles`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/comparison`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/natural-search-profiles`, { headers: authHeaders() }),
+        fetch(`${API_URL}/api/sources/status`, { headers: authHeaders() }),
+      ]);
       if (meResponse.status === 401) {
         logout();
         return;
@@ -328,6 +360,8 @@ function App() {
       setProfiles(await profilesResponse.json());
       setComparison(await comparisonResponse.json());
       setNaturalProfiles(naturalProfilesResponse.ok ? await naturalProfilesResponse.json() : []);
+      // Tolérant : l'endpoint peut être absent le temps que le backend se déploie.
+      setSourcesStatus(sourcesStatusResponse.ok ? await sourcesStatusResponse.json() : []);
     } finally {
       setInitialLoading(false);
     }
@@ -1300,17 +1334,52 @@ function App() {
         </section>
       )}
 
-      {aggregatedSources.length > 0 && (
+      {(sourcesStatus.length > 0 || aggregatedSources.length > 0) && (
         <footer className="sources-strip" aria-label="Portails agrégés">
-          <span className="sources-strip-label">Annonces agrégées depuis</span>
+          <span className="sources-strip-label">Sources agrégées</span>
           <div className="sources-strip-items">
-            {aggregatedSources.map((source) => (
-              <span className="sources-strip-item" key={source}>
-                <SourceLogo source={source} size={16} />
-                {sourceMeta(source).label}
-              </span>
-            ))}
+            {(sourcesStatus.length > 0
+              ? sourcesStatus
+              : aggregatedSources.map((source) => ({ source }))
+            ).map((st) => {
+              const tone = st.last_status === "error" ? "is-error" : st.overdue ? "is-overdue" : "";
+              const tooltip = st.last_run_at
+                ? [
+                    `Dernier scan ${relativeTimeFr(st.last_run_at)} (${st.last_found_count ?? "?"} annonces vues)`,
+                    st.last_status === "error" ? `En erreur : ${st.last_error || "erreur inconnue"}` : null,
+                    st.next_expected_at ? `Prochain passage estimé ~${formatClockFr(st.next_expected_at)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : `${sourceMeta(st.source).label} — pas encore de scan enregistré`;
+              return (
+                <span className={`sources-strip-item ${tone}`} key={st.source} title={tooltip}>
+                  <SourceLogo source={st.source} size={16} />
+                  <span className="sources-strip-name">{sourceMeta(st.source).label}</span>
+                  {typeof st.listings_count === "number" && (
+                    <span className="sources-strip-count">{st.listings_count}</span>
+                  )}
+                  {st.last_run_at && (
+                    <span className="sources-strip-freshness">
+                      <span className="status-dot" aria-hidden="true" />
+                      {relativeTimeFr(st.last_run_at)}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
           </div>
+          {sourcesStatus.some((st) => st.next_expected_at && !st.overdue && st.last_status !== "error") && (
+            <span className="sources-strip-next">
+              Prochain scan estimé ~
+              {formatClockFr(
+                sourcesStatus
+                  .filter((st) => st.next_expected_at && !st.overdue)
+                  .map((st) => st.next_expected_at)
+                  .sort()[0]
+              )}
+            </span>
+          )}
         </footer>
       )}
 
