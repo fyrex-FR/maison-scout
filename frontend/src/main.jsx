@@ -41,6 +41,14 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
+import bienIciLogo from "./assets/sources/bien-ici.png";
+import greenAcresLogo from "./assets/sources/green-acres.png";
+import leboncoinLogo from "./assets/sources/leboncoin.png";
+import logicImmoLogo from "./assets/sources/logic-immo.png";
+import notairesLogo from "./assets/sources/notaires.png";
+import papLogo from "./assets/sources/pap.png";
+import paruvenduLogo from "./assets/sources/paruvendu.png";
+import selogerLogo from "./assets/sources/seloger.png";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -96,6 +104,29 @@ function daysOnMarketLabel(listing) {
   const days = listing.days_on_market;
   const unit = days === 1 ? "jour" : "jours";
   return listing.off_market ? `Retirée après ${days} ${unit}` : `Sur le marché depuis ${days} ${unit}`;
+}
+
+// Identité visuelle des portails agrégés (favicons bundlés en local : pas de
+// hotlink qui casse ou qui fuite la navigation vers un tiers).
+const SOURCE_META = {
+  "green-acres": { label: "Green-Acres", logo: greenAcresLogo },
+  "bien-ici": { label: "Bien'ici", logo: bienIciLogo },
+  seloger: { label: "SeLoger", logo: selogerLogo },
+  leboncoin: { label: "LeBonCoin", logo: leboncoinLogo },
+  paruvendu: { label: "ParuVendu", logo: paruvenduLogo },
+  pap: { label: "PAP", logo: papLogo },
+  "logic-immo": { label: "Logic-Immo", logo: logicImmoLogo },
+  notaires: { label: "Notaires", logo: notairesLogo },
+};
+
+function sourceMeta(source) {
+  return SOURCE_META[source] || { label: source, logo: null };
+}
+
+function SourceLogo({ source, size = 14 }) {
+  const meta = sourceMeta(source);
+  if (!meta.logo) return <Building2 size={size} aria-hidden="true" />;
+  return <img className="source-logo" src={meta.logo} alt="" width={size} height={size} loading="lazy" />;
 }
 
 function formatSignedPercent(ratio) {
@@ -443,6 +474,17 @@ function App() {
   // Sans ville configurée il n'y a rien à afficher : on force l'ouverture pour
   // que l'onboarding reste évident.
   const searchConfigExpanded = searchConfigOpen || (!initialLoading && profiles.length === 0);
+  // Portails réellement présents dans les annonces affichées (dérivé, donc
+  // toujours honnête — la démo est exclue du bandeau).
+  const aggregatedSources = useMemo(() => {
+    const seen = new Set();
+    for (const listing of listings) {
+      for (const src of listing.sources || []) {
+        if (src.source && src.source !== "demo") seen.add(src.source);
+      }
+    }
+    return [...seen].sort();
+  }, [listings]);
 
   async function addToComparison(id) {
     setComparisonError("");
@@ -1203,10 +1245,23 @@ function App() {
                 <div className="card-footer">
                   {listing.note && <p className="note-preview">{listing.note}</p>}
                   <div className="badges-row">
-                    {listing.sources[0]?.source && <span className="source-badge">{listing.sources[0].source}</span>}
-                    <a className="source" href={listing.sources[0]?.url} target="_blank" rel="noreferrer">
-                      Voir l'annonce source
-                    </a>
+                    {listing.sources.slice(0, 3).map((src) => (
+                      <a
+                        key={`${src.source}-${src.url}`}
+                        className="source-badge source-badge-link"
+                        href={src.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`Voir l'annonce sur ${sourceMeta(src.source).label}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <SourceLogo source={src.source} size={13} />
+                        {sourceMeta(src.source).label}
+                      </a>
+                    ))}
+                    {listing.sources.length > 3 && (
+                      <span className="source-badge">+{listing.sources.length - 3}</span>
+                    )}
                   </div>
                   <div className="actions">
                     <button
@@ -1243,6 +1298,20 @@ function App() {
             </article>
           ))}
         </section>
+      )}
+
+      {aggregatedSources.length > 0 && (
+        <footer className="sources-strip" aria-label="Portails agrégés">
+          <span className="sources-strip-label">Annonces agrégées depuis</span>
+          <div className="sources-strip-items">
+            {aggregatedSources.map((source) => (
+              <span className="sources-strip-item" key={source}>
+                <SourceLogo source={source} size={16} />
+                {sourceMeta(source).label}
+              </span>
+            ))}
+          </div>
+        </footer>
       )}
 
       {activeListing && (
@@ -1346,6 +1415,24 @@ function App() {
                 {comparisonIds.has(activeListing.id) ? "Comparé" : "Comparer"}
               </button>
             </div>
+            {activeListing.sources.length > 0 && (
+              <div className="modal-sources">
+                <span className="modal-sources-label">Publiée sur</span>
+                {activeListing.sources.map((src) => (
+                  <a
+                    key={`${src.source}-${src.url}`}
+                    className="source-badge source-badge-link"
+                    href={src.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`Voir l'annonce sur ${sourceMeta(src.source).label}`}
+                  >
+                    <SourceLogo source={src.source} size={13} />
+                    {sourceMeta(src.source).label}
+                  </a>
+                ))}
+              </div>
+            )}
             <p className="modal-description">{activeListing.description}</p>
 
             {!priceHistoryLoading && priceHistory.length >= 2 && (
@@ -1718,7 +1805,8 @@ function App() {
                         <td key={listing.id}>
                           {listing.sources[0]?.url ? (
                             <a href={listing.sources[0].url} target="_blank" rel="noreferrer" className="source">
-                              {listing.sources[0].source}
+                              <SourceLogo source={listing.sources[0].source} size={13} />
+                              {sourceMeta(listing.sources[0].source).label}
                             </a>
                           ) : (
                             "?"
