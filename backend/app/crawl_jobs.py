@@ -52,7 +52,9 @@ SOURCE_EXECUTORS: dict[str, str] = {
     "logic-immo": "openclaw",
     "notaires": "openclaw",
     "pap": "openclaw",
-    "leboncoin": "openclaw",
+    # LeBonCoin uses the community `lbc` client from the external
+    # Maison Scout LeBonCoin worker, not the browser-based OpenClaw scraper.
+    "leboncoin": "leboncoin",
 }
 
 # A job stuck in "running" past this age is assumed to belong to a dead
