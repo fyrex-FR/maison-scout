@@ -21,6 +21,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  RefreshCw,
   Ruler,
   Scale,
   Search,
@@ -167,6 +168,7 @@ function SourceLogo({ source, size = 14 }) {
 }
 
 function ScanPipeline({ activeStage }) {
+  if (!activeStage) return null;
   const activeIndex = SCAN_PIPELINE_STEPS.findIndex(([key]) => key === activeStage);
 
   return (
@@ -969,9 +971,9 @@ function App() {
         </div>
         <div className="topbar-actions">
           <div className="scan-action">
-            <button className="primary" onClick={runAllCrawlers} disabled={loading} title="Scanner les sources">
-              {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
-              <span className="btn-label">
+            <button className="primary scan-trigger" onClick={runAllCrawlers} disabled={loading} title="Scanner les sources">
+              {loading ? <Loader2 size={18} className="spin" /> : <RefreshCw size={18} />}
+              <span className="scan-label">
                 {loading
                   ? scanStage === "dedup"
                     ? "Déduplication..."
