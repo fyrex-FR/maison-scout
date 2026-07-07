@@ -330,6 +330,7 @@ function App() {
     sort: "score",
     price_dropped_only: false,
     include_off_market: false,
+    cities: [],
   });
   const [selectedListing, setSelectedListing] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
@@ -592,9 +593,19 @@ function App() {
         standardFilters.min_bedrooms,
       ].filter((value) => `${value}`.trim() !== "").length +
       (standardFilters.price_dropped_only ? 1 : 0) +
-      (standardFilters.include_off_market ? 1 : 0),
+      (standardFilters.include_off_market ? 1 : 0) +
+      standardFilters.cities.length,
     [standardFilters]
   );
+  // Villes réellement présentes dans les annonces (dérivé) : n'affiche le
+  // filtre ville que si on en suit plus d'une, sinon ça n'a aucune utilité.
+  const availableCities = useMemo(() => {
+    const seen = new Set();
+    for (const listing of listings) {
+      if (listing.city) seen.add(listing.city);
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b));
+  }, [listings]);
   // Sans ville configurée il n'y a rien à afficher : on force l'ouverture pour
   // que l'onboarding reste évident.
   const searchConfigExpanded = searchConfigOpen || (!initialLoading && profiles.length === 0);
@@ -803,6 +814,7 @@ function App() {
     };
     const visible = listings
       .filter((listing) => status === "all" || listing.status === status)
+      .filter((listing) => standardFilters.cities.length === 0 || standardFilters.cities.includes(listing.city))
       .filter((listing) => matchesNumber(listing.price_eur, standardFilters.max_price_eur, "max"))
       .filter((listing) => matchesNumber(listing.living_area_m2, standardFilters.min_living_area_m2, "min"))
       .filter((listing) => matchesNumber(listing.land_area_m2, standardFilters.min_land_area_m2, "min"))
@@ -1198,6 +1210,35 @@ function App() {
             <X size={18} />
           </button>
         </div>
+        {availableCities.length > 1 && (
+          <div className="city-filter">
+            <span className="field-label">Ville</span>
+            <div className="toggle-chips">
+              {availableCities.map((city) => {
+                const isActive = standardFilters.cities.includes(city);
+                return (
+                  <button
+                    key={city}
+                    type="button"
+                    className={`toggle-chip${isActive ? " is-active" : ""}`}
+                    onClick={() =>
+                      setStandardFilters({
+                        ...standardFilters,
+                        cities: isActive
+                          ? standardFilters.cities.filter((value) => value !== city)
+                          : [...standardFilters.cities, city],
+                      })
+                    }
+                    aria-pressed={isActive}
+                  >
+                    <MapPin size={14} />
+                    {city}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="filters-grid">
           <label className="field">
             <span className="field-label">Budget max</span>
@@ -1288,6 +1329,7 @@ function App() {
                 sort: "score",
                 price_dropped_only: false,
                 include_off_market: false,
+                cities: [],
               })
             }
           >
