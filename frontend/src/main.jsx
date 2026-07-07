@@ -68,6 +68,12 @@ const SORT_LABELS = {
   updated: "Plus récentes",
 };
 
+const SCAN_PIPELINE_STEPS = [
+  ["sources", "Récupération des sources"],
+  ["dedup", "Déduplication"],
+  ["ai", "Analyse IA"],
+];
+
 function formatPrice(value) {
   if (!value) return "Prix NC";
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
@@ -158,6 +164,25 @@ function SourceLogo({ source, size = 14 }) {
   const meta = sourceMeta(source);
   if (!meta.logo) return <Building2 size={size} aria-hidden="true" />;
   return <img className="source-logo" src={meta.logo} alt="" width={size} height={size} loading="lazy" />;
+}
+
+function ScanPipeline({ activeStage }) {
+  const activeIndex = SCAN_PIPELINE_STEPS.findIndex(([key]) => key === activeStage);
+
+  return (
+    <div className="scan-pipeline" aria-live="polite">
+      {SCAN_PIPELINE_STEPS.map(([key, label], index) => {
+        const isActive = key === activeStage;
+        const isDone = activeIndex > index;
+        return (
+          <span className={`scan-step${isActive ? " is-active" : ""}${isDone ? " is-done" : ""}`} key={key}>
+            {isDone ? <CheckCheck size={13} /> : key === "ai" ? <Sparkles size={13} /> : <Search size={13} />}
+            {label}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function formatSignedPercent(ratio) {
@@ -289,6 +314,7 @@ function App() {
   const [selectedNaturalProfile, setSelectedNaturalProfile] = useState(null);
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(false);
+  const [scanStage, setScanStage] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [markingSeen, setMarkingSeen] = useState(false);
   const [authMode, setAuthMode] = useState("login");
@@ -496,6 +522,7 @@ function App() {
 
   async function runAllCrawlers() {
     setLoading(true);
+    setScanStage("sources");
     try {
       const response = await fetch(`${API_URL}/api/crawl/request`, {
         method: "POST",
@@ -505,6 +532,7 @@ function App() {
       if (response.status === 404) {
         // Backend pas encore à jour : ancien scan synchrone.
         await fetch(`${API_URL}/api/crawl/all`, { method: "POST", headers: authHeaders() });
+        setScanStage("dedup");
         await loadListings();
         return;
       }
@@ -520,9 +548,14 @@ function App() {
         if (!statuses) break;
         active = statuses.some((st) => st.job_status);
       }
+      setScanStage("dedup");
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      setScanStage("ai");
+      await new Promise((resolve) => setTimeout(resolve, 1200));
       await loadListings();
     } finally {
       setLoading(false);
+      setScanStage(null);
     }
   }
 
@@ -935,10 +968,21 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
-          <button className="primary" onClick={runAllCrawlers} disabled={loading} title="Scanner les sources">
-            {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
-            <span className="btn-label">{loading ? "Scan en cours..." : "Scanner"}</span>
-          </button>
+          <div className="scan-action">
+            <button className="primary" onClick={runAllCrawlers} disabled={loading} title="Scanner les sources">
+              {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
+              <span className="btn-label">
+                {loading
+                  ? scanStage === "dedup"
+                    ? "Déduplication..."
+                    : scanStage === "ai"
+                    ? "Analyse IA..."
+                    : "Récupération..."
+                  : "Scanner"}
+              </span>
+            </button>
+            <ScanPipeline activeStage={scanStage} />
+          </div>
           <button
             className="ghost compare-trigger"
             onClick={() => setShowComparison(true)}
@@ -1270,10 +1314,19 @@ function App() {
           <h3>{(EMPTY_STATE_COPY[status] || EMPTY_STATE_COPY.all).title}</h3>
           <p>{(EMPTY_STATE_COPY[status] || EMPTY_STATE_COPY.all).body}</p>
           {listings.length === 0 && (
-            <button className="primary" onClick={runAllCrawlers} disabled={loading}>
-              {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
-              {loading ? "Scan en cours..." : "Lancer un scan"}
-            </button>
+            <div className="scan-action empty-scan-action">
+              <button className="primary" onClick={runAllCrawlers} disabled={loading}>
+                {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
+                {loading
+                  ? scanStage === "dedup"
+                    ? "Déduplication..."
+                    : scanStage === "ai"
+                    ? "Analyse IA..."
+                    : "Récupération..."
+                  : "Lancer un scan"}
+              </button>
+              <ScanPipeline activeStage={scanStage} />
+            </div>
           )}
         </div>
       ) : viewMode === "map" ? (

@@ -466,6 +466,58 @@ h1 {
   flex-wrap: wrap;
 }
 
+.scan-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 260px;
+}
+
+.scan-action .primary {
+  min-width: 150px;
+}
+
+.scan-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 24px;
+}
+
+.scan-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: var(--color-ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.scan-step svg {
+  flex: 0 0 auto;
+}
+
+.scan-step.is-active {
+  border-color: var(--color-brand);
+  background: var(--color-brand-light);
+  color: var(--color-brand-dark);
+}
+
+.scan-step.is-done {
+  border-color: rgba(31, 122, 77, 0.28);
+  background: rgba(31, 122, 77, 0.08);
+  color: var(--color-good);
+}
+
 /* ==========================================================================
    Search config (collapsible wrapper around cities + natural searches)
    ========================================================================== */
@@ -2822,17 +2874,38 @@ h2 {
     justify-content: flex-end;
   }
 
-  .btn-label {
+  .topbar-actions > button .btn-label {
     display: none;
   }
 
   .topbar-actions {
     gap: var(--space-2);
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
-  .topbar-actions button {
+  .topbar-actions > button {
     padding: 10px 12px;
+  }
+
+  .scan-action {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .scan-action .primary {
+    width: 100%;
+  }
+
+  .scan-pipeline {
+    width: 100%;
+  }
+
+  .scan-step {
+    flex: 1 1 120px;
+    justify-content: center;
+    white-space: normal;
+    text-align: center;
   }
 
   .mark-seen-trigger {
