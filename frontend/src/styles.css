@@ -2853,6 +2853,11 @@ h2 {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     min-width: 0;
+    /* Fondu du bord droit : signale que la rangée continue au lieu d'un
+       chip tranché net qui fait "cassé". */
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+    padding-right: 24px;
   }
 
   .filters::-webkit-scrollbar {
@@ -2864,8 +2869,18 @@ h2 {
     flex: 0 0 auto;
   }
 
+  /* Toggle Liste/Carte en icônes seules (labels .btn-label masqués plus
+     haut) : rend leur largeur aux chips de statut. */
   .view-toggle {
     flex: 0 0 auto;
+  }
+
+  .view-toggle button {
+    padding: 8px 12px;
+  }
+
+  .add-city-hint {
+    display: none;
   }
 
   /* --- Filtres & tri : barre repère sticky + bottom sheet --- */

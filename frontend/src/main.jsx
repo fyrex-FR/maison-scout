@@ -314,10 +314,9 @@ function App() {
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
   const [viewMode, setViewMode] = useState("list");
   // La zone "Ma recherche" (villes + recherches IA) est de la configuration
-  // ponctuelle : repliée par défaut pour garder les annonces visibles d'emblée.
-  const [searchConfigOpen, setSearchConfigOpen] = useState(
-    () => localStorage.getItem("maisonScoutSearchConfigOpen") === "true"
-  );
+  // ponctuelle : TOUJOURS repliée à l'arrivée (pas de persistance — un panneau
+  // ouvert une fois ne doit pas revenir ouvert à chaque visite).
+  const [searchConfigOpen, setSearchConfigOpen] = useState(false);
   // Sur mobile, les filtres vivent dans une bottom-sheet ouverte à la demande
   // (sur desktop le panneau reste affiché en permanence, la classe est ignorée).
   const [showFiltersSheet, setShowFiltersSheet] = useState(false);
@@ -704,10 +703,7 @@ function App() {
   }
 
   function toggleSearchConfig() {
-    setSearchConfigOpen((open) => {
-      localStorage.setItem("maisonScoutSearchConfigOpen", String(!open));
-      return !open;
-    });
+    setSearchConfigOpen((open) => !open);
   }
 
   useEffect(() => {
@@ -1108,13 +1104,23 @@ function App() {
           ))}
         </div>
         <div className="view-toggle" role="group" aria-label="Mode d'affichage">
-          <button type="button" className={viewMode === "list" ? "active" : ""} onClick={() => setViewMode("list")}>
+          <button
+            type="button"
+            className={viewMode === "list" ? "active" : ""}
+            onClick={() => setViewMode("list")}
+            title="Vue liste"
+          >
             <List size={15} />
-            Liste
+            <span className="btn-label">Liste</span>
           </button>
-          <button type="button" className={viewMode === "map" ? "active" : ""} onClick={() => setViewMode("map")}>
+          <button
+            type="button"
+            className={viewMode === "map" ? "active" : ""}
+            onClick={() => setViewMode("map")}
+            title="Vue carte"
+          >
             <MapIcon size={15} />
-            Carte
+            <span className="btn-label">Carte</span>
           </button>
         </div>
       </section>
