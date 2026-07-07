@@ -269,6 +269,7 @@ def attach_user_context(db: Session, user: User, listings: list[Listing]) -> lis
 
         analysis = ai_analyses.get(listing.id)
         listing.ai_summary = analysis.summary if analysis else None
+        listing.ai_features = analysis.features_json if analysis else {}
         listing.red_flags = analysis.red_flags_json if analysis else []
 
         match = match_scores.get(listing.id)

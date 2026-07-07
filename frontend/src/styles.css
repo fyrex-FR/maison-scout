@@ -1420,6 +1420,47 @@ h1 {
   border-color: var(--color-border);
 }
 
+.ai-feature-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 2px 0 8px;
+}
+
+.ai-feature-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(31, 122, 77, 0.12);
+  color: var(--color-good);
+  border: 1px solid rgba(31, 122, 77, 0.25);
+}
+
+.ai-feature-badge.is-uncertain {
+  background: var(--color-surface-muted);
+  color: var(--color-ink-faint);
+  border-color: var(--color-border);
+  border-style: dashed;
+}
+
+.ai-feature-row.is-detailed {
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.ai-feature-row.is-detailed .ai-feature-badge {
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-pill);
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .new-badge {
   position: absolute;
   left: 10px;

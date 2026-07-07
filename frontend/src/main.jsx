@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  AirVent,
   AlertTriangle,
   Archive,
   BedDouble,
@@ -9,11 +10,13 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  DoorOpen,
   Flag,
   Heart,
   Home,
   Info,
   LandPlot,
+  Layers,
   List,
   LogOut,
   Map as MapIcon,
@@ -37,6 +40,7 @@ import {
   TrendingDown,
   UserCheck,
   Users,
+  Waves,
   X,
 } from "lucide-react";
 import L from "leaflet";
@@ -74,6 +78,53 @@ const SCAN_PIPELINE_STEPS = [
   ["dedup", "Déduplication"],
   ["ai", "Analyse IA"],
 ];
+
+// Vocabulaire tri-état ("present" / "absent" / "uncertain") produit par le
+// worker IA externe (voir docs/openclaw-assistant-worker.md, features_json).
+// Ce contrat n'est pas garanti à 100% (worker externe) : toute clé inconnue
+// est simplement ignorée, jamais une erreur.
+const AI_FEATURE_META = {
+  pool: { label: "Piscine", icon: Waves },
+  air_conditioning: { label: "Climatisation", icon: AirVent },
+  single_storey: { label: "Plain-pied", icon: Layers, boolean: true },
+  living_room_to_garden_direct_access: { label: "Accès direct jardin", icon: DoorOpen },
+  living_room_to_pool_direct_access: { label: "Accès direct piscine", icon: DoorOpen },
+};
+
+function aiFeatureEntries(features) {
+  if (!features || typeof features !== "object") return [];
+  return Object.entries(AI_FEATURE_META)
+    .map(([key, meta]) => {
+      const raw = features[key];
+      if (meta.boolean) {
+        if (raw !== true) return null;
+        return { key, meta, state: "present" };
+      }
+      if (raw !== "present" && raw !== "uncertain") return null;
+      return { key, meta, state: raw };
+    })
+    .filter(Boolean);
+}
+
+function AIFeatureBadges({ features, detailed = false }) {
+  const entries = aiFeatureEntries(features);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className={`ai-feature-row${detailed ? " is-detailed" : ""}`}>
+      {entries.map(({ key, meta, state }) => {
+        const Icon = meta.icon;
+        const title = state === "uncertain" ? `${meta.label} (probable, non confirmé)` : meta.label;
+        return (
+          <span key={key} className={`ai-feature-badge${state === "uncertain" ? " is-uncertain" : ""}`} title={title}>
+            <Icon size={detailed ? 14 : 12} />
+            {detailed && meta.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 function formatPrice(value) {
   if (!value) return "Prix NC";
@@ -1474,6 +1525,7 @@ function App() {
                     )}
                   </div>
                 )}
+                <AIFeatureBadges features={listing.ai_features} />
                 <p className="meta">
                   <span className="meta-item">
                     <Ruler size={14} />
@@ -1814,6 +1866,7 @@ function App() {
                   Résumé IA
                 </h3>
                 <p>{activeListing.ai_summary}</p>
+                <AIFeatureBadges features={activeListing.ai_features} detailed />
               </div>
             )}
 

@@ -37,6 +37,7 @@ class ListingOut(BaseModel):
     sources: list[ListingSourceOut]
     photos: list[ListingPhotoOut]
     ai_summary: str | None = None
+    ai_features: dict = Field(default_factory=dict)
     red_flags: list = Field(default_factory=list)
     match_score: int | None = None
     match_reasons: list = Field(default_factory=list)
