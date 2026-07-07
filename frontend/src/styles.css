@@ -2757,6 +2757,15 @@ h2 {
   flex: 0 0 auto;
 }
 
+/* Chrome mobile uniquement (barre repère sticky + bottom sheet des filtres) :
+   masqué sur desktop, activé dans la media query 680px. */
+.mobile-toolbar,
+.sheet-close,
+.sheet-apply,
+.sheet-backdrop {
+  display: none;
+}
+
 /* ==========================================================================
    Responsive
    ========================================================================== */
@@ -2778,55 +2787,188 @@ h2 {
 
 @media (max-width: 680px) {
   main {
-    padding: var(--space-5) var(--space-4) var(--space-7);
+    padding: var(--space-4) var(--space-3) var(--space-7);
   }
 
-  .search-config-summary {
-    flex-wrap: wrap;
-    row-gap: var(--space-2);
-  }
-
-  /* Sur mobile : titre + bouton sur la première ligne, chips en dessous. */
-  .search-config-chips {
-    order: 3;
-    flex-basis: 100%;
-  }
-
-  .search-config-toggle {
-    margin-left: auto;
-  }
-
+  /* --- Topbar : une seule ligne compacte, icônes + badges sans libellés --- */
   .topbar {
-    align-items: stretch;
-    flex-direction: column;
-    gap: var(--space-4);
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .topbar-brand {
+    gap: var(--space-2);
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .topbar-brand > div {
+    min-width: 0;
+  }
+
+  .topbar-brand-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Sur mobile le logo seul porte la marque : le titre + sous-titre laissent
+     toute la place aux actions. */
+  .topbar-brand div {
+    display: none;
   }
 
   .topbar-actions {
+    flex: 1 1 auto;
     justify-content: flex-end;
   }
 
+  .btn-label {
+    display: none;
+  }
+
+  .topbar-actions {
+    gap: var(--space-2);
+    flex-wrap: nowrap;
+  }
+
+  .topbar-actions button {
+    padding: 10px 12px;
+  }
+
   .mark-seen-trigger {
-    flex: 1 1 100%;
-    justify-content: center;
+    flex: 0 0 auto;
   }
 
-  .profiles {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
+  /* --- Onglets de statut : une seule ligne défilante --- */
   .filters-row {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .filters {
+    flex: 1;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    min-width: 0;
+  }
+
+  .filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filters button {
+    white-space: nowrap;
+    flex: 0 0 auto;
   }
 
   .view-toggle {
-    justify-content: center;
+    flex: 0 0 auto;
   }
 
-  .map-container {
-    height: 400px;
+  /* --- Filtres & tri : barre repère sticky + bottom sheet --- */
+  .mobile-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    position: sticky;
+    top: var(--space-2);
+    z-index: 40;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-sm);
+    padding: 8px;
+    margin-bottom: var(--space-4);
+  }
+
+  .mobile-filters-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--color-brand);
+    color: #fff;
+    border: 0;
+    border-radius: var(--radius-pill);
+    padding: 9px 14px;
+    font-weight: 700;
+    font-size: 13.5px;
+    flex: 0 0 auto;
+  }
+
+  .mobile-filters-count {
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: var(--radius-pill);
+    padding: 1px 7px;
+    font-size: 11.5px;
+    font-weight: 800;
+  }
+
+  .mobile-toolbar-info {
+    color: var(--color-ink-soft);
+    font-size: 12.5px;
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(28, 33, 31, 0.4);
+    z-index: 85;
+  }
+
+  .standard-filters {
+    display: none;
+  }
+
+  .standard-filters.is-open {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 90;
+    margin: 0;
+    max-height: 82vh;
+    overflow-y: auto;
+    border-bottom: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-5) var(--space-5) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .standard-filters-hint {
+    display: none;
+  }
+
+  .standard-filters-title {
+    width: 100%;
+  }
+
+  .sheet-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    background: var(--color-surface-muted);
+    color: var(--color-ink-soft);
+  }
+
+  .sheet-apply {
+    display: inline-flex;
+    justify-content: center;
+    flex: 1 1 100%;
   }
 
   .standard-filters input,
@@ -2840,27 +2982,66 @@ h2 {
     justify-content: center;
   }
 
+  /* --- Résumé : grille 2x2 compacte au lieu de pavés pleine largeur --- */
+  .summary {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-2);
+  }
+
+  .summary div {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .summary strong {
+    font-size: 19px;
+  }
+
+  .summary span {
+    font-size: 11.5px;
+  }
+
+  /* --- Ma recherche / formulaires --- */
+  .search-config-summary {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+
+  .search-config-chips {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .search-config-toggle {
+    margin-left: auto;
+  }
+
+  .profiles {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .add-city-form {
+    flex-direction: row;
+  }
+
+  .add-city-form input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .add-city-form button {
+    width: 46px;
+    flex: 0 0 auto;
+  }
+
   .natural-profile-form input,
   .natural-profile-form textarea,
   .natural-profile-form .primary {
     flex: 1 1 100%;
   }
 
-  .add-city-form {
-    flex-direction: column;
-  }
-
-  .add-city-form input {
-    flex: 1 1 auto;
-    width: 100%;
-  }
-
-  .add-city-form button {
-    width: 100%;
-  }
-
-  .summary {
-    grid-template-columns: 1fr;
+  .map-container {
+    height: 400px;
   }
 
   .detail-photos {
@@ -2881,10 +3062,6 @@ h2 {
     height: 100%;
     width: 100%;
     border-radius: 0;
-  }
-
-  h1 {
-    font-size: 22px;
   }
 }
 

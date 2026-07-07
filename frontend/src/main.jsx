@@ -60,6 +60,14 @@ const FILTERS = [
   ["rejected", "Rejetées"],
 ];
 
+const SORT_LABELS = {
+  score: "Score",
+  match: "Pertinence IA",
+  price: "Prix croissant",
+  surface: "Surface",
+  updated: "Plus récentes",
+};
+
 function formatPrice(value) {
   if (!value) return "Prix NC";
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
@@ -310,6 +318,9 @@ function App() {
   const [searchConfigOpen, setSearchConfigOpen] = useState(
     () => localStorage.getItem("maisonScoutSearchConfigOpen") === "true"
   );
+  // Sur mobile, les filtres vivent dans une bottom-sheet ouverte à la demande
+  // (sur desktop le panneau reste affiché en permanence, la classe est ignorée).
+  const [showFiltersSheet, setShowFiltersSheet] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminInviteCodes, setAdminInviteCodes] = useState([]);
@@ -538,6 +549,18 @@ function App() {
     () => naturalProfiles.filter((profile) => profile.is_active).length,
     [naturalProfiles]
   );
+  const activeFilterCount = useMemo(
+    () =>
+      [
+        standardFilters.max_price_eur,
+        standardFilters.min_living_area_m2,
+        standardFilters.min_land_area_m2,
+        standardFilters.min_bedrooms,
+      ].filter((value) => `${value}`.trim() !== "").length +
+      (standardFilters.price_dropped_only ? 1 : 0) +
+      (standardFilters.include_off_market ? 1 : 0),
+    [standardFilters]
+  );
   // Sans ville configurée il n'y a rien à afficher : on force l'ouverture pour
   // que l'onboarding reste évident.
   const searchConfigExpanded = searchConfigOpen || (!initialLoading && profiles.length === 0);
@@ -702,7 +725,8 @@ function App() {
     // z-order de rendu : admin/comparatif par-dessus la fiche annonce).
     function onKeyDown(event) {
       if (event.key !== "Escape") return;
-      if (showAdmin) setShowAdmin(false);
+      if (showFiltersSheet) setShowFiltersSheet(false);
+      else if (showAdmin) setShowAdmin(false);
       else if (showComparison) setShowComparison(false);
       else if (selectedNaturalProfile) setSelectedNaturalProfile(null);
       else if (selectedProfile) setSelectedProfile(null);
@@ -710,7 +734,7 @@ function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showAdmin, showComparison, selectedNaturalProfile, selectedProfile, selectedListing]);
+  }, [showFiltersSheet, showAdmin, showComparison, selectedNaturalProfile, selectedProfile, selectedListing]);
 
   useEffect(() => {
     if (!selectedListing || !token) {
@@ -915,17 +939,18 @@ function App() {
           </div>
         </div>
         <div className="topbar-actions">
-          <button className="primary" onClick={runAllCrawlers} disabled={loading}>
+          <button className="primary" onClick={runAllCrawlers} disabled={loading} title="Scanner les sources">
             {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
-            {loading ? "Scan en cours..." : "Scanner"}
+            <span className="btn-label">{loading ? "Scan en cours..." : "Scanner"}</span>
           </button>
           <button
             className="ghost compare-trigger"
             onClick={() => setShowComparison(true)}
             disabled={comparison.length === 0}
+            title="Comparer les annonces sélectionnées"
           >
             <Scale size={18} />
-            Comparer
+            <span className="btn-label">Comparer</span>
             {comparison.length > 0 && <span className="compare-count">{comparison.length}</span>}
           </button>
           <button
@@ -935,10 +960,11 @@ function App() {
             title="Marquer toutes les annonces comme vues"
           >
             {markingSeen ? <Loader2 size={18} className="spin" /> : <CheckCheck size={18} />}
-            Tout marquer comme vu
+            <span className="btn-label">Tout marquer comme vu</span>
             {newListingsCount > 0 && (
               <span className="new-count">
-                {newListingsCount} nouvelle{newListingsCount > 1 ? "s" : ""}
+                {newListingsCount}
+                <span className="btn-label"> nouvelle{newListingsCount > 1 ? "s" : ""}</span>
               </span>
             )}
           </button>
@@ -1093,11 +1119,32 @@ function App() {
         </div>
       </section>
 
-      <section className="standard-filters" aria-label="Affiner l'affichage">
+      <div className="mobile-toolbar">
+        <button type="button" className="mobile-filters-trigger" onClick={() => setShowFiltersSheet(true)}>
+          <SlidersHorizontal size={15} />
+          Filtres & tri
+          {activeFilterCount > 0 && <span className="mobile-filters-count">{activeFilterCount}</span>}
+        </button>
+        <span className="mobile-toolbar-info">
+          Tri : {SORT_LABELS[standardFilters.sort] || standardFilters.sort} · {filtered.length} annonce
+          {filtered.length > 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {showFiltersSheet && <div className="sheet-backdrop" onClick={() => setShowFiltersSheet(false)} />}
+      <section className={`standard-filters${showFiltersSheet ? " is-open" : ""}`} aria-label="Affiner l'affichage">
         <div className="standard-filters-title">
           <SlidersHorizontal size={17} />
           <span>Affiner l'affichage</span>
           <span className="standard-filters-hint">filtre temporaire, non enregistré</span>
+          <button
+            type="button"
+            className="sheet-close"
+            onClick={() => setShowFiltersSheet(false)}
+            aria-label="Fermer les filtres"
+          >
+            <X size={18} />
+          </button>
         </div>
         <input
           placeholder="Budget max"
@@ -1167,6 +1214,9 @@ function App() {
           }
         >
           Réinitialiser
+        </button>
+        <button type="button" className="primary sheet-apply" onClick={() => setShowFiltersSheet(false)}>
+          Voir {filtered.length} annonce{filtered.length > 1 ? "s" : ""}
         </button>
       </section>
 
