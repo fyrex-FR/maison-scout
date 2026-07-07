@@ -956,20 +956,18 @@ h1 {
   background: var(--color-surface);
   padding: var(--space-4);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-4);
   margin-bottom: var(--space-5);
 }
 
 .standard-filters-title {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-brand-dark);
   font-weight: 800;
   white-space: nowrap;
-  flex: 1 1 100%;
 }
 
 .standard-filters-hint {
@@ -979,56 +977,112 @@ h1 {
   text-transform: none;
   letter-spacing: 0;
   white-space: nowrap;
+  margin-left: auto;
 }
 
-.standard-filters input,
-.standard-filters select {
-  flex: 1 1 150px;
-  min-width: 130px;
-  width: auto;
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-ink-soft);
+}
+
+.field input,
+.sort-control select {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 11px 12px;
   font: inherit;
   background: var(--color-surface-muted);
   color: var(--color-ink);
+  width: 100%;
 }
 
-.standard-filters input:focus,
-.standard-filters select:focus {
+.field input:focus,
+.sort-control select:focus {
   outline: none;
   border-color: var(--color-brand);
   box-shadow: 0 0 0 3px rgba(47, 111, 92, 0.12);
 }
 
-.standard-filters .compact {
-  flex: 0 0 auto;
-  min-height: 43px;
-  padding-inline: var(--space-4);
+.filters-toggles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
 }
 
-.standard-filters-checkbox {
+.toggle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.toggle-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  white-space: nowrap;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  padding: 9px 14px;
   font-size: 13px;
   font-weight: 700;
   color: var(--color-ink-soft);
-  cursor: pointer;
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease),
+    border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+}
+
+.toggle-chip:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand-dark);
+}
+
+.toggle-chip.is-active {
+  background: var(--color-brand);
+  color: #fff;
+  border-color: var(--color-brand);
+  box-shadow: var(--shadow-sm);
+}
+
+.toggle-chip.is-active:hover {
+  color: #fff;
+}
+
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   flex: 0 0 auto;
 }
 
-.standard-filters-checkbox input[type="checkbox"] {
-  width: auto;
-  flex: 0 0 auto;
-  margin: 0;
-  accent-color: var(--color-brand);
+.sort-control .field-label {
+  white-space: nowrap;
 }
 
-.standard-filters-checkbox svg {
-  color: var(--color-good);
-  flex: 0 0 auto;
+.sort-control select {
+  min-width: 170px;
+}
+
+.filters-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 
 /* ==========================================================================
@@ -3058,15 +3112,43 @@ h2 {
     flex: 1 1 100%;
   }
 
-  .standard-filters input,
-  .standard-filters select {
-    flex: 1 1 100%;
+  .filters-grid {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 
-  .standard-filters-checkbox,
-  .standard-filters .compact {
-    flex: 1 1 100%;
+  .filters-toggles {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .toggle-chips {
+    width: 100%;
+  }
+
+  .toggle-chip {
+    flex: 1 1 auto;
     justify-content: center;
+  }
+
+  .sort-control {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .sort-control select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .filters-footer {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .filters-footer .compact {
+    flex: 1 1 auto;
   }
 
   /* --- Résumé : grille 2x2 compacte au lieu de pavés pleine largeur --- */

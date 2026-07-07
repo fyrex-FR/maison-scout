@@ -1198,78 +1198,105 @@ function App() {
             <X size={18} />
           </button>
         </div>
-        <input
-          placeholder="Budget max"
-          inputMode="numeric"
-          value={standardFilters.max_price_eur}
-          onChange={(event) => setStandardFilters({ ...standardFilters, max_price_eur: event.target.value })}
-        />
-        <input
-          placeholder="Surface min"
-          inputMode="numeric"
-          value={standardFilters.min_living_area_m2}
-          onChange={(event) => setStandardFilters({ ...standardFilters, min_living_area_m2: event.target.value })}
-        />
-        <input
-          placeholder="Terrain min"
-          inputMode="numeric"
-          value={standardFilters.min_land_area_m2}
-          onChange={(event) => setStandardFilters({ ...standardFilters, min_land_area_m2: event.target.value })}
-        />
-        <input
-          placeholder="Ch. min"
-          inputMode="numeric"
-          value={standardFilters.min_bedrooms}
-          onChange={(event) => setStandardFilters({ ...standardFilters, min_bedrooms: event.target.value })}
-        />
-        <select
-          value={standardFilters.sort}
-          onChange={(event) => setStandardFilters({ ...standardFilters, sort: event.target.value })}
-        >
-          <option value="score">Score</option>
-          <option value="match">Pertinence (IA)</option>
-          <option value="price">Prix croissant</option>
-          <option value="surface">Surface décroissante</option>
-          <option value="updated">Plus récentes</option>
-        </select>
-        <label className="standard-filters-checkbox">
-          <input
-            type="checkbox"
-            checked={standardFilters.price_dropped_only}
-            onChange={(event) => setStandardFilters({ ...standardFilters, price_dropped_only: event.target.checked })}
-          />
-          <TrendingDown size={14} />
-          Baisse de prix uniquement
-        </label>
-        <label className="standard-filters-checkbox">
-          <input
-            type="checkbox"
-            checked={standardFilters.include_off_market}
-            onChange={(event) => setStandardFilters({ ...standardFilters, include_off_market: event.target.checked })}
-          />
-          <Archive size={14} />
-          Inclure les annonces retirées
-        </label>
-        <button
-          type="button"
-          className="ghost compact"
-          onClick={() =>
-            setStandardFilters({
-              max_price_eur: "",
-              min_living_area_m2: "",
-              min_land_area_m2: "",
-              min_bedrooms: "",
-              sort: "score",
-              price_dropped_only: false,
-              include_off_market: false,
-            })
-          }
-        >
-          Réinitialiser
-        </button>
-        <button type="button" className="primary sheet-apply" onClick={() => setShowFiltersSheet(false)}>
-          Voir {filtered.length} annonce{filtered.length > 1 ? "s" : ""}
-        </button>
+        <div className="filters-grid">
+          <label className="field">
+            <span className="field-label">Budget max</span>
+            <input
+              placeholder="ex. 500 000"
+              inputMode="numeric"
+              value={standardFilters.max_price_eur}
+              onChange={(event) => setStandardFilters({ ...standardFilters, max_price_eur: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Surface min (m²)</span>
+            <input
+              placeholder="ex. 100"
+              inputMode="numeric"
+              value={standardFilters.min_living_area_m2}
+              onChange={(event) => setStandardFilters({ ...standardFilters, min_living_area_m2: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Terrain min (m²)</span>
+            <input
+              placeholder="ex. 500"
+              inputMode="numeric"
+              value={standardFilters.min_land_area_m2}
+              onChange={(event) => setStandardFilters({ ...standardFilters, min_land_area_m2: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Chambres min</span>
+            <input
+              placeholder="ex. 3"
+              inputMode="numeric"
+              value={standardFilters.min_bedrooms}
+              onChange={(event) => setStandardFilters({ ...standardFilters, min_bedrooms: event.target.value })}
+            />
+          </label>
+        </div>
+        <div className="filters-toggles">
+          <div className="toggle-chips">
+            <button
+              type="button"
+              className={`toggle-chip${standardFilters.price_dropped_only ? " is-active" : ""}`}
+              onClick={() =>
+                setStandardFilters({ ...standardFilters, price_dropped_only: !standardFilters.price_dropped_only })
+              }
+              aria-pressed={standardFilters.price_dropped_only}
+            >
+              <TrendingDown size={14} />
+              Baisse de prix uniquement
+            </button>
+            <button
+              type="button"
+              className={`toggle-chip${standardFilters.include_off_market ? " is-active" : ""}`}
+              onClick={() =>
+                setStandardFilters({ ...standardFilters, include_off_market: !standardFilters.include_off_market })
+              }
+              aria-pressed={standardFilters.include_off_market}
+            >
+              <Archive size={14} />
+              Inclure les annonces retirées
+            </button>
+          </div>
+          <label className="sort-control">
+            <span className="field-label">Trier par</span>
+            <select
+              value={standardFilters.sort}
+              onChange={(event) => setStandardFilters({ ...standardFilters, sort: event.target.value })}
+            >
+              <option value="score">Score</option>
+              <option value="match">Pertinence (IA)</option>
+              <option value="price">Prix croissant</option>
+              <option value="surface">Surface décroissante</option>
+              <option value="updated">Plus récentes</option>
+            </select>
+          </label>
+        </div>
+        <div className="filters-footer">
+          <button
+            type="button"
+            className="ghost compact"
+            onClick={() =>
+              setStandardFilters({
+                max_price_eur: "",
+                min_living_area_m2: "",
+                min_land_area_m2: "",
+                min_bedrooms: "",
+                sort: "score",
+                price_dropped_only: false,
+                include_off_market: false,
+              })
+            }
+          >
+            Réinitialiser
+          </button>
+          <button type="button" className="primary sheet-apply" onClick={() => setShowFiltersSheet(false)}>
+            Voir {filtered.length} annonce{filtered.length > 1 ? "s" : ""}
+          </button>
+        </div>
       </section>
 
       <section className="summary">
