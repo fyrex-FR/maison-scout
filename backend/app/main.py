@@ -1537,13 +1537,45 @@ def list_source_status(user: User = Depends(get_current_user), db: Session = Dep
         if job_status_by_source.get(job_source) != "running":
             job_status_by_source[job_source] = job_status
 
+    latest_terminal_job_by_source: dict[str, CrawlJob] = {}
+    terminal_jobs_stmt = select(CrawlJob).where(
+        CrawlJob.source != "demo",
+        CrawlJob.status.in_(["done", "error"]),
+        CrawlJob.finished_at.is_not(None),
+    )
+    for job in db.scalars(terminal_jobs_stmt):
+        existing = latest_terminal_job_by_source.get(job.source)
+        if existing is None or (job.finished_at or job.created_at) >= (existing.finished_at or existing.created_at):
+            latest_terminal_job_by_source[job.source] = job
+
     # A source with an active job but no run and no listing yet (e.g. a brand
     # new source just enqueued) must still show up on the dashboard.
-    sources = set(counts_by_source) | set(latest_run_by_source) | set(job_status_by_source)
+    sources = set(counts_by_source) | set(latest_run_by_source) | set(job_status_by_source) | set(latest_terminal_job_by_source)
 
     results: list[SourceStatusOut] = []
     for source in sources:
         run = latest_run_by_source.get(source)
+        terminal_job = latest_terminal_job_by_source.get(source)
+        run_at = run.finished_at if run and run.finished_at is not None else run.started_at if run else None
+        job_at = terminal_job.finished_at if terminal_job and terminal_job.finished_at is not None else None
+        if terminal_job is not None and (run_at is None or (job_at is not None and job_at >= run_at)):
+            last_run_at = job_at.replace(tzinfo=timezone.utc) if job_at is not None else None
+            next_expected_at = (job_at + interval).replace(tzinfo=timezone.utc) if job_at is not None else None
+            results.append(
+                SourceStatusOut(
+                    source=source,
+                    listings_count=counts_by_source.get(source, 0),
+                    last_run_at=last_run_at,
+                    last_status="error" if terminal_job.status == "error" else "ok",
+                    last_found_count=terminal_job.found_count,
+                    last_error=terminal_job.error,
+                    next_expected_at=next_expected_at,
+                    overdue=bool(next_expected_at and now > next_expected_at.replace(tzinfo=None) + grace),
+                    job_status=job_status_by_source.get(source),
+                )
+            )
+            continue
+
         if run is None:
             results.append(
                 SourceStatusOut(

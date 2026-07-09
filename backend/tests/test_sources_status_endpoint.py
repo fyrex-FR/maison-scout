@@ -276,6 +276,65 @@ def test_job_status_ignores_done_and_error_jobs(monkeypatch):
     assert entry["job_status"] is None
 
 
+def test_recent_terminal_job_updates_source_status_when_no_ingestion_run(monkeypatch):
+    client, SessionLocal = _client()
+    with SessionLocal() as db:
+        user = _user(db)
+        _listing(db, "logic-immo", "li-1")
+        older = datetime.utcnow() - timedelta(hours=2)
+        newer = datetime.utcnow() - timedelta(minutes=5)
+        _run(db, "logic-immo", status="ok", found_count=47, started_at=older, finished_at=older + timedelta(minutes=3))
+        db.add(
+            CrawlJob(
+                source="logic-immo",
+                executor="openclaw",
+                status="error",
+                found_count=0,
+                error="logic-immo HTTP 403 for Frejus",
+                finished_at=newer,
+            )
+        )
+        db.commit()
+        token = create_token(user)
+
+    response = client.get("/api/sources/status", headers={"Authorization": f"Bearer {token}"})
+    payload = response.json()
+    entry = next(item for item in payload if item["source"] == "logic-immo")
+    assert entry["last_status"] == "error"
+    assert entry["last_found_count"] == 0
+    assert entry["last_error"] == "logic-immo HTTP 403 for Frejus"
+    assert entry["job_status"] is None
+
+
+def test_older_terminal_job_does_not_override_newer_ingestion_run(monkeypatch):
+    client, SessionLocal = _client()
+    with SessionLocal() as db:
+        user = _user(db)
+        _listing(db, "leboncoin", "lbc-1")
+        older = datetime.utcnow() - timedelta(hours=2)
+        newer = datetime.utcnow() - timedelta(minutes=5)
+        db.add(
+            CrawlJob(
+                source="leboncoin",
+                executor="leboncoin",
+                status="error",
+                found_count=0,
+                error="Datadome",
+                finished_at=older,
+            )
+        )
+        _run(db, "leboncoin", status="ok", found_count=14, started_at=newer, finished_at=newer + timedelta(minutes=1))
+        db.commit()
+        token = create_token(user)
+
+    response = client.get("/api/sources/status", headers={"Authorization": f"Bearer {token}"})
+    payload = response.json()
+    entry = next(item for item in payload if item["source"] == "leboncoin")
+    assert entry["last_status"] == "ok"
+    assert entry["last_found_count"] == 14
+    assert entry["last_error"] is None
+
+
 def test_serialized_datetimes_include_utc_offset():
     client, SessionLocal = _client()
     with SessionLocal() as db:
