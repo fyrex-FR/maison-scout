@@ -1,4 +1,5 @@
 from datetime import datetime
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +14,19 @@ from app.scoring import score_listing
 # surface" if they are exactly equal or within this relative/absolute margin.
 _PRICE_MATCH_TOLERANCE_RATIO = 0.02  # +/- 2%
 _LIVING_AREA_MATCH_TOLERANCE_M2 = 2  # +/- 2 sqm
+
+
+def _is_generic_source_url(source: str, url: str | None) -> bool:
+    if not url:
+        return True
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return True
+    path = parsed.path.rstrip("/")
+    if source == "logic-immo" and parsed.hostname and parsed.hostname.endswith("logic-immo.com"):
+        return path in ("", "/")
+    return False
 
 
 def _values_match(a: int | None, b: int | None, *, tolerance_ratio: float = 0.0, tolerance_abs: float = 0.0) -> bool:
@@ -90,6 +104,8 @@ def upsert_listing(db: Session, item: CrawledListing) -> Listing:
     if source:
         listing = source.listing
         source.last_seen_at = datetime.utcnow()
+        if item.url and item.url != source.url and not _is_generic_source_url(item.source, item.url):
+            source.url = item.url
         listing.off_market_at = None
     else:
         # New (source, source_id) pair: it might still be a listing we
@@ -176,4 +192,3 @@ async def run_crawler(db: Session, crawler) -> CrawlRun:
         db.refresh(run)
 
     return run
-

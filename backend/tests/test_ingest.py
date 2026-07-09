@@ -103,3 +103,53 @@ def test_photos_are_kept_when_new_crawl_has_no_photos(db):
     db.commit()
 
     assert [p.url for p in listing.photos] == ["http://cdn/1.jpg"]
+
+
+def test_existing_source_url_is_refreshed_when_crawl_has_detail_url(db):
+    upsert_listing(
+        db,
+        _listing(
+            source="logic-immo",
+            source_id="logic-1",
+            url="https://www.logic-immo.com/",
+        ),
+    )
+    db.commit()
+
+    upsert_listing(
+        db,
+        _listing(
+            source="logic-immo",
+            source_id="logic-1",
+            url="https://www.logic-immo.com/detail-vente-1234567890.htm",
+        ),
+    )
+    db.commit()
+
+    source = db.query(ListingSource).filter_by(source="logic-immo", source_id="logic-1").one()
+    assert source.url == "https://www.logic-immo.com/detail-vente-1234567890.htm"
+
+
+def test_existing_source_url_is_not_replaced_by_logic_immo_homepage(db):
+    upsert_listing(
+        db,
+        _listing(
+            source="logic-immo",
+            source_id="logic-1",
+            url="https://www.logic-immo.com/detail-vente-1234567890.htm",
+        ),
+    )
+    db.commit()
+
+    upsert_listing(
+        db,
+        _listing(
+            source="logic-immo",
+            source_id="logic-1",
+            url="https://www.logic-immo.com/",
+        ),
+    )
+    db.commit()
+
+    source = db.query(ListingSource).filter_by(source="logic-immo", source_id="logic-1").one()
+    assert source.url == "https://www.logic-immo.com/detail-vente-1234567890.htm"
