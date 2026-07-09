@@ -212,10 +212,53 @@ function sourceMeta(source) {
   return SOURCE_META[source] || { label: source, logo: null };
 }
 
+function isSourceUrlUsable(src) {
+  if (!src?.url) return false;
+  try {
+    const url = new URL(src.url);
+    const path = url.pathname.replace(/\/+$/, "");
+    if (src.source === "logic-immo" && url.hostname.endsWith("logic-immo.com") && path === "") {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function SourceLogo({ source, size = 14 }) {
   const meta = sourceMeta(source);
   if (!meta.logo) return <Building2 size={size} aria-hidden="true" />;
   return <img className="source-logo" src={meta.logo} alt="" width={size} height={size} loading="lazy" />;
+}
+
+function SourceBadge({ src, onClick }) {
+  const meta = sourceMeta(src.source);
+  const content = (
+    <>
+      <SourceLogo source={src.source} size={13} />
+      {meta.label}
+    </>
+  );
+  if (!isSourceUrlUsable(src)) {
+    return (
+      <span className="source-badge" title={`Lien ${meta.label} indisponible`}>
+        {content}
+      </span>
+    );
+  }
+  return (
+    <a
+      className="source-badge source-badge-link"
+      href={src.url}
+      target="_blank"
+      rel="noreferrer"
+      title={`Voir l'annonce sur ${meta.label}`}
+      onClick={onClick}
+    >
+      {content}
+    </a>
+  );
 }
 
 function ScanPipeline({ activeStage }) {
@@ -925,9 +968,10 @@ function App() {
       city.className = "map-popup-city";
       city.textContent = `${listing.city || ""} ${listing.postal_code || ""}`.trim();
       popupNode.append(title, price, city);
-      if (listing.sources?.[0]?.url) {
+      const popupSource = listing.sources?.find(isSourceUrlUsable);
+      if (popupSource) {
         const link = document.createElement("a");
-        link.href = listing.sources[0].url;
+        link.href = popupSource.url;
         link.target = "_blank";
         link.rel = "noreferrer";
         link.className = "map-popup-link";
@@ -1545,18 +1589,7 @@ function App() {
                   {listing.note && <p className="note-preview">{listing.note}</p>}
                   <div className="badges-row">
                     {listing.sources.slice(0, 3).map((src) => (
-                      <a
-                        key={`${src.source}-${src.url}`}
-                        className="source-badge source-badge-link"
-                        href={src.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={`Voir l'annonce sur ${sourceMeta(src.source).label}`}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <SourceLogo source={src.source} size={13} />
-                        {sourceMeta(src.source).label}
-                      </a>
+                      <SourceBadge key={`${src.source}-${src.url}`} src={src} onClick={(event) => event.stopPropagation()} />
                     ))}
                     {listing.sources.length > 3 && (
                       <span className="source-badge">+{listing.sources.length - 3}</span>
@@ -1764,17 +1797,7 @@ function App() {
               <div className="modal-sources">
                 <span className="modal-sources-label">Publiée sur</span>
                 {activeListing.sources.map((src) => (
-                  <a
-                    key={`${src.source}-${src.url}`}
-                    className="source-badge source-badge-link"
-                    href={src.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={`Voir l'annonce sur ${sourceMeta(src.source).label}`}
-                  >
-                    <SourceLogo source={src.source} size={13} />
-                    {sourceMeta(src.source).label}
-                  </a>
+                  <SourceBadge key={`${src.source}-${src.url}`} src={src} />
                 ))}
               </div>
             )}
@@ -2149,14 +2172,25 @@ function App() {
                       <th className="compare-row-label">Source</th>
                       {comparison.map((listing) => (
                         <td key={listing.id}>
-                          {listing.sources[0]?.url ? (
-                            <a href={listing.sources[0].url} target="_blank" rel="noreferrer" className="source">
-                              <SourceLogo source={listing.sources[0].source} size={13} />
-                              {sourceMeta(listing.sources[0].source).label}
-                            </a>
-                          ) : (
-                            "?"
-                          )}
+                          {(() => {
+                            const src = listing.sources.find(isSourceUrlUsable) || listing.sources[0];
+                            if (!src) return "?";
+                            const label = sourceMeta(src.source).label;
+                            if (!isSourceUrlUsable(src)) {
+                              return (
+                                <span className="source" title={`Lien ${label} indisponible`}>
+                                  <SourceLogo source={src.source} size={13} />
+                                  {label}
+                                </span>
+                              );
+                            }
+                            return (
+                              <a href={src.url} target="_blank" rel="noreferrer" className="source">
+                                <SourceLogo source={src.source} size={13} />
+                                {label}
+                              </a>
+                            );
+                          })()}
                         </td>
                       ))}
                     </tr>
