@@ -397,6 +397,17 @@ const EMPTY_STATE_COPY = {
   },
 };
 
+const DEFAULT_STANDARD_FILTERS = {
+  max_price_eur: "",
+  min_living_area_m2: "",
+  min_land_area_m2: "",
+  min_bedrooms: "",
+  sort: "score",
+  price_dropped_only: false,
+  include_off_market: false,
+  cities: [],
+};
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem("maisonScoutToken") || "");
   const [user, setUser] = useState(null);
@@ -416,16 +427,7 @@ function App() {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ email: "", password: "", display_name: "", invite_code: "" });
   const [newCity, setNewCity] = useState("");
-  const [standardFilters, setStandardFilters] = useState({
-    max_price_eur: "",
-    min_living_area_m2: "",
-    min_land_area_m2: "",
-    min_bedrooms: "",
-    sort: "score",
-    price_dropped_only: false,
-    include_off_market: false,
-    cities: [],
-  });
+  const [standardFilters, setStandardFilters] = useState(DEFAULT_STANDARD_FILTERS);
   const [selectedListing, setSelectedListing] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -454,6 +456,7 @@ function App() {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const mapMarkersRef = useRef([]);
+  const sortTouchedRef = useRef(false);
 
   function authHeaders() {
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -678,6 +681,13 @@ function App() {
     () => naturalProfiles.filter((profile) => profile.is_active).length,
     [naturalProfiles]
   );
+  const defaultSort = activeNaturalCount > 0 ? "match" : "score";
+
+  useEffect(() => {
+    if (activeNaturalCount === 0 || sortTouchedRef.current) return;
+    setStandardFilters((current) => (current.sort === "match" ? current : { ...current, sort: "match" }));
+  }, [activeNaturalCount]);
+
   const activeFilterCount = useMemo(
     () =>
       [
@@ -1401,7 +1411,10 @@ function App() {
             <span className="field-label">Trier par</span>
             <select
               value={standardFilters.sort}
-              onChange={(event) => setStandardFilters({ ...standardFilters, sort: event.target.value })}
+              onChange={(event) => {
+                sortTouchedRef.current = true;
+                setStandardFilters({ ...standardFilters, sort: event.target.value });
+              }}
             >
               <option value="score">Score</option>
               <option value="match">Pertinence (IA)</option>
@@ -1415,18 +1428,10 @@ function App() {
           <button
             type="button"
             className="ghost compact"
-            onClick={() =>
-              setStandardFilters({
-                max_price_eur: "",
-                min_living_area_m2: "",
-                min_land_area_m2: "",
-                min_bedrooms: "",
-                sort: "score",
-                price_dropped_only: false,
-                include_off_market: false,
-                cities: [],
-              })
-            }
+            onClick={() => {
+              sortTouchedRef.current = false;
+              setStandardFilters({ ...DEFAULT_STANDARD_FILTERS, sort: defaultSort });
+            }}
           >
             Réinitialiser
           </button>
